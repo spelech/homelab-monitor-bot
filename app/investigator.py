@@ -50,6 +50,8 @@ def trigger_investigation(incident_id: str):
         prompt = (
             f"Container failure detected on '{incident.target_id}'.\n"
             f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
+            "You are an SRE bot. Focus strictly on diagnosing this container failure by inspecting its configuration, files, and Docker logs. "
+            "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
             "Output ONLY valid JSON with exactly three keys: "
             "'root_cause' (a string explaining the issue), "
             "'proposed_fix' (a string containing valid bash commands to fix it), and "
