@@ -112,7 +112,7 @@ def send_incident_notification(incident_id: str):
             actions_str = (
                 f"http, Fix Now, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
                 f"http, Defer 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Ignore Target, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
             )
 
         # Always try to send to Telegram as well if configured
@@ -159,7 +159,7 @@ def send_incident_notification(incident_id: str):
             local_actions_str = (
                 f"http, Fix Now (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
                 f"http, Defer 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Ignore Target (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
             )
             fallback_headers["Actions"] = local_actions_str
 

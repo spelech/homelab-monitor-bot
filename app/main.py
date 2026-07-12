@@ -44,6 +44,24 @@ async def lifespan(app: FastAPI):
     # Startup actions
     logger.info("Initializing AutoHeal Database...")
     init_db()
+
+    # Reset any stuck active incidents from a previous run to FAILED
+    db = SessionLocal()
+    try:
+        stuck_incidents = db.query(Incident).filter(
+            Incident.status.in_(["DETECTED", "INVESTIGATING", "FIXING"])
+        ).all()
+        for inc in stuck_incidents:
+            logger.warning(f"Resetting orphaned active incident {inc.id} ({inc.status}) to FAILED.")
+            inc.status = "FAILED"
+            inc.execution_log = f"System restarted or process terminated while in {inc.status} state."
+            inc.completed_at = datetime.utcnow()
+        db.commit()
+    except Exception as reset_err:
+        logger.error(f"Failed to reset orphaned incidents: {reset_err}")
+        db.rollback()
+    finally:
+        db.close()
     
     logger.info("Starting Docker event watcher background worker...")
     start_watcher_thread()
@@ -92,8 +110,7 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
         Incident.status.notin_(active_statuses)
     ).order_by(Incident.created_at.desc()).limit(100).all()
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "active_count": active_count,
         "resolved_count": resolved_count,
         "targets_count": targets_count,
@@ -138,13 +155,13 @@ async def handle_webhook(
         return {"status": "ok", "detail": "Incident deferred for 24h"}
 
     elif action == "ignore":
-        logger.info(f"Ignoring target '{incident.target_id}' for 24 hours.")
+        logger.info(f"Ignoring target '{incident.target_id}' permanently.")
         target = db.query(Target).filter(Target.id == incident.target_id).first()
         if target:
-            target.ignored_until = now + timedelta(hours=24)
+            target.ignored_until = datetime(9999, 12, 31, 23, 59, 59)
         incident.status = "IGNORED"
         db.commit()
-        return {"status": "ok", "detail": f"Target {incident.target_id} ignored for 24h"}
+        return {"status": "ok", "detail": f"Target {incident.target_id} permanently ignored"}
 
     elif action == "fix":
         logger.info(f"Approved fix for incident {incident_id}. Spawning remediation worker...")
@@ -210,6 +227,66 @@ def search_incidents(q: str = Query(...), db: Session = Depends(get_db)):
             "score": id_to_score.get(inc.id, 0)
         })
     return results
+
+@app.get("/api/dashboard")
+def get_dashboard_data(db: Session = Depends(get_db)):
+    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
+    
+    # Counts
+    active_count = db.query(Incident).filter(Incident.status.in_(active_statuses)).count()
+    resolved_count = db.query(Incident).filter(Incident.status == "RESOLVED").count()
+    targets_count = db.query(Target).count()
+    
+    now = datetime.utcnow()
+    ignored_count = db.query(Target).filter(
+        Target.ignored_until.is_not(None),
+        Target.ignored_until > now
+    ).count()
+    
+    # Lists
+    active_incidents = db.query(Incident).filter(
+        Incident.status.in_(active_statuses)
+    ).order_by(Incident.created_at.desc()).all()
+    
+    ignored_targets = db.query(Target).filter(
+        Target.ignored_until.is_not(None),
+        Target.ignored_until > now
+    ).all()
+    
+    history_incidents = db.query(Incident).filter(
+        Incident.status.notin_(active_statuses)
+    ).order_by(Incident.created_at.desc()).limit(100).all()
+    
+    # Serialize helper
+    def serialize_incidents(list_inc):
+        return [{
+            "id": inc.id,
+            "target_id": inc.target_id,
+            "status": inc.status,
+            "category": inc.category or "unknown",
+            "root_cause": inc.root_cause,
+            "proposed_fix": inc.proposed_fix,
+            "execution_log": inc.execution_log,
+            "completed_at": inc.completed_at.isoformat() if inc.completed_at else None,
+            "created_at": inc.created_at.isoformat()
+        } for inc in list_inc]
+        
+    def serialize_targets(list_targ):
+        return [{
+            "id": t.id,
+            "type": t.type,
+            "ignored_until": t.ignored_until.isoformat() if t.ignored_until else None
+        } for t in list_targ]
+        
+    return {
+        "active_count": active_count,
+        "resolved_count": resolved_count,
+        "targets_count": targets_count,
+        "ignored_count": ignored_count,
+        "active_incidents": serialize_incidents(active_incidents),
+        "ignored_targets": serialize_targets(ignored_targets),
+        "history_incidents": serialize_incidents(history_incidents)
+    }
 
 class SettingsUpdate(BaseModel):
     silent_mode: bool | None = None

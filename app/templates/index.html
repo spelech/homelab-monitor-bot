@@ -1,42 +1,41 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoHeal | SRE Autonomous Dashboard</title>
-    <!-- Outfit Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Tailwind CSS CDN -->
+    <title>AutoHeal SRE Monitor</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
                     fontFamily: {
                         sans: ['Outfit', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
                         brand: {
                             50: '#f5f3ff',
                             100: '#ede9fe',
                             200: '#ddd6fe',
-                            300: '#c084fc',
-                            400: '#a855f7',
+                            300: '#c4b5fd',
+                            400: '#a78bfa',
                             500: '#8b5cf6',
                             600: '#7c3aed',
                             700: '#6d28d9',
                             800: '#5b21b6',
                             900: '#4c1d95',
                         },
-                        dark: {
-                            50: '#f8fafc',
-                            100: '#f1f5f9',
-                            800: '#1e293b',
-                            900: '#0f172a',
-                            950: '#020617',
+                        cyber: {
+                            cyan: '#06b6d4',
+                            magenta: '#ec4899',
+                            purple: '#a855f7',
+                            slate: '#0f172a',
                         }
                     }
                 }
@@ -47,19 +46,52 @@
         body {
             background-color: #030712;
             background-image: 
-                radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
-                radial-gradient(at 50% 0%, hsla(263,80%,10%,0.3) 0, transparent 50%),
-                radial-gradient(at 100% 0%, hsla(240,20%,8%,1) 0, transparent 50%);
+                radial-gradient(at 0% 0%, #0c0a21 0, transparent 40%), 
+                radial-gradient(at 50% 0%, rgba(139, 92, 246, 0.12) 0, transparent 50%),
+                radial-gradient(at 100% 0%, #050b14 0, transparent 40%);
             background-attachment: fixed;
         }
-        .glass-card {
-            background: rgba(17, 24, 39, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+        .cyber-card {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
         }
-        .glow-border:hover {
-            border-color: rgba(139, 92, 246, 0.4);
-            box-shadow: 0 0 15px rgba(139, 92, 246, 0.1);
+        .cyber-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.3), transparent);
+        }
+        .glow-hover:hover {
+            border-color: rgba(6, 182, 212, 0.3);
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.05);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(139, 92, 246, 0.3);
+        }
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.015);
+        }
+        td {
+            transition: background-color 0.2s ease;
         }
     </style>
 </head>
@@ -69,12 +101,12 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
-                        <i class="fa-solid fa-heart-pulse text-white text-lg animate-pulse"></i>
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-cyber-cyan flex items-center justify-center shadow-lg shadow-brand-500/20">
+                        <i class="fa-solid fa-bolt-lightning text-white text-lg"></i>
                     </div>
                     <div>
-                        <span class="text-xl font-bold tracking-tight text-white">Auto<span class="text-brand-400">Heal</span></span>
-                        <span class="block text-xs text-slate-500 font-semibold tracking-wider uppercase">L3 Autonomous SRE</span>
+                        <span class="text-xl font-extrabold tracking-tight text-white">Auto<span class="text-cyber-cyan">Heal</span></span>
+                        <span class="block text-[10px] text-slate-500 font-bold tracking-widest uppercase">Autonomous SRE Engine</span>
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
@@ -104,39 +136,39 @@
         
         <!-- Status Summary Widgets -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
+            <div class="cyber-card rounded-2xl p-6 flex items-center justify-between">
                 <div>
-                    <span class="text-sm font-medium text-slate-400">Active Incidents</span>
-                    <span class="block text-3xl font-bold mt-1 text-white">{{ active_count }}</span>
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Active Failures</span>
+                    <span class="block text-4xl font-extrabold mt-1 text-white" id="widget-active-count">{{ active_count }}</span>
                 </div>
-                <div class="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400 text-xl">
+                <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-xl shadow-inner">
                     <i class="fa-solid fa-triangle-exclamation"></i>
                 </div>
             </div>
-            <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
+            <div class="cyber-card rounded-2xl p-6 flex items-center justify-between">
                 <div>
-                    <span class="text-sm font-medium text-slate-400">Resolved Incidents</span>
-                    <span class="block text-3xl font-bold mt-1 text-white">{{ resolved_count }}</span>
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Resolved Incidents</span>
+                    <span class="block text-4xl font-extrabold mt-1 text-white" id="widget-resolved-count">{{ resolved_count }}</span>
                 </div>
-                <div class="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-xl">
-                    <i class="fa-solid fa-square-check"></i>
+                <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-xl shadow-inner">
+                    <i class="fa-solid fa-shield-halved"></i>
                 </div>
             </div>
-            <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
+            <div class="cyber-card rounded-2xl p-6 flex items-center justify-between">
                 <div>
-                    <span class="text-sm font-medium text-slate-400">Total Monitored Targets</span>
-                    <span class="block text-3xl font-bold mt-1 text-white">{{ targets_count }}</span>
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Total Targets</span>
+                    <span class="block text-4xl font-extrabold mt-1 text-white" id="widget-targets-count">{{ targets_count }}</span>
                 </div>
-                <div class="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl">
-                    <i class="fa-solid fa-cubes"></i>
+                <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-xl shadow-inner">
+                    <i class="fa-solid fa-network-wired"></i>
                 </div>
             </div>
-            <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
+            <div class="cyber-card rounded-2xl p-6 flex items-center justify-between">
                 <div>
-                    <span class="text-sm font-medium text-slate-400">Ignored Targets</span>
-                    <span class="block text-3xl font-bold mt-1 text-white">{{ ignored_count }}</span>
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Ignored Targets</span>
+                    <span class="block text-4xl font-extrabold mt-1 text-white" id="widget-ignored-count">{{ ignored_count }}</span>
                 </div>
-                <div class="w-12 h-12 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400 text-xl">
+                <div class="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 text-xl shadow-inner">
                     <i class="fa-solid fa-bell-slash"></i>
                 </div>
             </div>
@@ -144,105 +176,108 @@
 
         <!-- Section: Active Incidents -->
         <div class="mb-10">
-            <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-white">
-                <i class="fa-solid fa-bolt text-amber-400"></i>
-                Active Failures & Investigations
+            <h2 class="text-base font-bold mb-4 flex items-center gap-2 text-white uppercase tracking-wider">
+                <span class="w-1.5 h-4 bg-amber-500 rounded-sm"></span>
+                Active Incidents & Diagnostic Room
             </h2>
-            {% if not active_incidents %}
-            <div class="glass-card rounded-2xl p-8 text-center text-slate-400 border border-dashed border-white/5">
-                <i class="fa-solid fa-circle-check text-emerald-400 text-3xl mb-3"></i>
-                <p class="font-medium text-slate-300">All services healthy. No active failures detected.</p>
-                <p class="text-xs mt-1 text-slate-500">AutoHeal is continuously monitoring container events.</p>
-            </div>
-            {% else %}
-            <div class="space-y-6">
-                {% for incident in active_incidents %}
-                <div class="glass-card rounded-2xl p-6 glow-border transition-all duration-300">
-                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 pb-4 border-b border-white/5">
-                        <div class="flex items-center gap-3">
-                            <span class="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider
-                                {% if incident.status == 'DETECTED' %} bg-red-500/10 text-red-400 border border-red-500/20
-                                {% elif incident.status == 'INVESTIGATING' %} bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse
-                                {% elif incident.status == 'PENDING_USER' %} bg-amber-500/10 text-amber-400 border border-amber-500/20
-                                {% elif incident.status == 'FIXING' %} bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse
-                                {% endif %}">
-                                {{ incident.status }}
-                            </span>
-                            <h3 class="text-base font-bold text-white flex items-center gap-1.5">
-                                <i class="fa-solid fa-cube text-slate-500"></i>
-                                {{ incident.target_id }}
-                            </h3>
-                            <span class="text-xs text-slate-500">{{ incident.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
-                        </div>
-                        
-                        <!-- Manual action buttons for convenience -->
-                        {% if incident.status == 'PENDING_USER' %}
-                        <div class="flex items-center gap-2">
-                            <button onclick="handleWebhook('{{ incident.id }}', 'fix')" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs flex items-center gap-1.5 transition-colors">
-                                <i class="fa-solid fa-play"></i> Fix Now
-                            </button>
-                            <button onclick="handleWebhook('{{ incident.id }}', 'defer')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs flex items-center gap-1.5 transition-colors">
-                                <i class="fa-solid fa-hourglass-half"></i> Defer 24h
-                            </button>
-                            <button onclick="handleWebhook('{{ incident.id }}', 'ignore')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs flex items-center gap-1.5 transition-colors">
-                                <i class="fa-solid fa-bell-slash"></i> Ignore 24h
-                            </button>
-                        </div>
-                        {% endif %}
-                    </div>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- Left pane: Logs -->
-                        <div class="flex flex-col">
-                            <span class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wide">Error Log Snapshot</span>
-                            <pre class="bg-black/40 border border-white/5 rounded-xl p-4 font-mono text-xs text-rose-300 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap flex-1">{{ incident.error_logs }}</pre>
+            <div id="active-incidents-container">
+                {% if not active_incidents %}
+                <div class="cyber-card rounded-2xl p-8 text-center text-slate-400 border border-dashed border-white/5 shadow-inner">
+                    <i class="fa-solid fa-circle-check text-emerald-400 text-4xl mb-3"></i>
+                    <p class="font-semibold text-slate-200">All services healthy. No active failures detected.</p>
+                    <p class="text-xs mt-1 text-slate-500">AutoHeal is continuously listening for container daemon crash events.</p>
+                </div>
+                {% else %}
+                <div class="space-y-6">
+                    {% for incident in active_incidents %}
+                    <div class="cyber-card rounded-2xl p-6 glow-hover transition-all duration-300">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 pb-4 border-b border-white/5">
+                            <div class="flex items-center gap-3">
+                                <span class="px-3 py-1 rounded-full text-2xs font-semibold uppercase tracking-wider
+                                    {% if incident.status == 'DETECTED' %} bg-red-500/10 text-red-400 border border-red-500/20
+                                    {% elif incident.status == 'INVESTIGATING' %} bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse
+                                    {% elif incident.status == 'PENDING_USER' %} bg-amber-500/10 text-amber-400 border border-amber-500/20
+                                    {% elif incident.status == 'FIXING' %} bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse
+                                    {% endif %}">
+                                    {{ incident.status }}
+                                </span>
+                                <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <i class="fa-solid fa-server text-slate-500"></i>
+                                    {{ incident.target_id }}
+                                </h3>
+                                <span class="text-xs text-slate-500">{{ incident.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                            </div>
+                            
+                            <!-- Manual action buttons for convenience -->
+                            {% if incident.status == 'PENDING_USER' %}
+                            <div class="flex items-center gap-2">
+                                <button onclick="handleWebhook('{{ incident.id }}', 'fix')" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-600/15">
+                                    <i class="fa-solid fa-play"></i> Fix Now
+                                </button>
+                                <button onclick="handleWebhook('{{ incident.id }}', 'defer')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-white/5">
+                                    <i class="fa-solid fa-hourglass-half"></i> Defer 24h
+                                </button>
+                                <button onclick="handleWebhook('{{ incident.id }}', 'ignore')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-white/5">
+                                    <i class="fa-solid fa-bell-slash"></i> Ignore Target
+                                </button>
+                            </div>
+                            {% endif %}
                         </div>
 
-                        <!-- Right pane: Findings -->
-                        <div class="flex flex-col">
-                            <span class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wide">AI Diagnosis</span>
-                            <div class="bg-brand-950/20 border border-brand-500/10 rounded-xl p-4 flex-1 flex flex-col justify-between">
-                                {% if incident.status == 'DETECTED' or incident.status == 'INVESTIGATING' %}
-                                <div class="flex flex-col items-center justify-center py-10 text-center text-slate-500 flex-1">
-                                    <i class="fa-solid fa-spinner fa-spin text-brand-400 text-2xl mb-3"></i>
-                                    <p class="font-medium text-slate-400 text-sm">LLM Agent is investigating error logs...</p>
-                                    <p class="text-xs text-slate-500 mt-1">Analyzing root causes and mapping host environments.</p>
-                                </div>
-                                {% else %}
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <!-- Left pane: Logs -->
+                            <div class="flex flex-col">
+                                <span class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Error Log Snapshot</span>
+                                <pre class="bg-black/40 border border-white/5 rounded-xl p-4 font-mono text-xs text-rose-300 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-all shadow-inner flex-1">{{ incident.error_logs }}</pre>
+                            </div>
+
+                            <!-- Right pane: Findings -->
+                            <div class="flex flex-col justify-between">
                                 <div>
-                                    <div class="mb-4">
-                                        <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5 mb-1 uppercase tracking-wider">Root Cause</h4>
-                                        <p class="text-sm text-slate-200">{{ incident.root_cause }}</p>
-                                    </div>
-                                    <div class="mb-4">
-                                        <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5 mb-1 uppercase tracking-wider">Proposed Script</h4>
-                                        <pre class="bg-black/30 border border-white/5 rounded-lg p-2.5 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre">{{ incident.proposed_fix }}</pre>
+                                    <span class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider block">AI Diagnosis</span>
+                                    <div class="bg-brand-950/10 border border-brand-500/5 rounded-xl p-4 flex flex-col justify-center">
+                                        {% if incident.status == 'DETECTED' or incident.status == 'INVESTIGATING' %}
+                                        <div class="flex flex-col items-center justify-center py-10 text-center text-slate-500 flex-1">
+                                            <i class="fa-solid fa-spinner fa-spin text-brand-400 text-2xl mb-3"></i>
+                                            <p class="font-medium text-slate-400 text-sm">LLM Agent is investigating error logs...</p>
+                                            <p class="text-xs text-slate-500 mt-1">Analyzing root causes and mapping host environments.</p>
+                                        </div>
+                                        {% else %}
+                                        <div class="space-y-4">
+                                            <div>
+                                                <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5 mb-1 uppercase tracking-wider">Root Cause</h4>
+                                                <p class="text-sm text-slate-200">{{ incident.root_cause }}</p>
+                                            </div>
+                                            <div>
+                                                <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5 mb-1 uppercase tracking-wider">Proposed Script</h4>
+                                                <pre class="bg-black/30 border border-white/5 rounded-lg p-2.5 font-mono text-xs text-emerald-400 whitespace-pre-wrap break-all overflow-x-auto max-h-40 overflow-y-auto shadow-inner">{{ incident.proposed_fix }}</pre>
+                                            </div>
+                                        </div>
+                                        {% endif %}
                                     </div>
                                 </div>
                                 {% if incident.status == 'FIXING' %}
-                                <div class="bg-brand-500/10 border border-brand-500/20 rounded-lg p-3 flex items-center gap-2.5 text-xs text-brand-300">
-                                    <i class="fa-solid fa-spinner fa-spin"></i>
+                                <div class="bg-brand-500/10 border border-brand-500/20 rounded-lg p-3 flex items-center gap-2.5 text-xs text-brand-300 mt-3 shadow-inner">
+                                    <i class="fa-solid fa-spinner fa-spin text-brand-400"></i>
                                     Executing proposed bash remediation and validating health...
                                 </div>
-                                {% endif %}
                                 {% endif %}
                             </div>
                         </div>
                     </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
+                {% endif %}
             </div>
-            {% endif %}
         </div>
 
         <!-- Section: Ignored Targets -->
-        {% if ignored_targets %}
-        <div class="mb-10">
-            <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-white">
-                <i class="fa-solid fa-bell-slash text-rose-400"></i>
-                Ignored Containers
+        <div id="ignored-targets-section" class="mb-10 {% if not ignored_targets %}hidden{% endif %}">
+            <h2 class="text-base font-bold mb-4 flex items-center gap-2 text-white uppercase tracking-wider">
+                <span class="w-1.5 h-4 bg-rose-500 rounded-sm"></span>
+                Ignored Container Blacklist
             </h2>
-            <div class="glass-card rounded-2xl overflow-hidden">
+            <div class="cyber-card rounded-2xl overflow-hidden">
                 <table class="min-w-full divide-y divide-white/5 text-sm text-left">
                     <thead class="bg-white/5 font-semibold text-slate-300">
                         <tr>
@@ -252,12 +287,18 @@
                             <th class="px-6 py-4 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5">
+                    <tbody class="divide-y divide-white/5" id="ignored-targets-tbody">
                         {% for target in ignored_targets %}
-                        <tr class="hover:bg-white/[0.01] transition-colors">
+                        <tr class="hover:bg-white/[0.01] transition-colors align-middle">
                             <td class="px-6 py-4 font-bold text-white">{{ target.id }}</td>
                             <td class="px-6 py-4 text-slate-400">{{ target.type }}</td>
-                            <td class="px-6 py-4 text-rose-400 font-medium">{{ target.ignored_until.strftime('%Y-%m-%d %H:%M:%S') }} UTC</td>
+                            <td class="px-6 py-4 text-rose-400 font-semibold">
+                                {% if target.ignored_until.strftime('%Y-%m-%d').startswith('9999') %}
+                                Permanently Ignored
+                                {% else %}
+                                {{ target.ignored_until.strftime('%Y-%m-%d %H:%M:%S') }} UTC
+                                {% endif %}
+                            </td>
                             <td class="px-6 py-4 text-right">
                                 <button onclick="unignoreTarget('{{ target.id }}')" class="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-semibold text-xs transition-colors">
                                     <i class="fa-solid fa-bell"></i> Unignore
@@ -269,14 +310,13 @@
                 </table>
             </div>
         </div>
-        {% endif %}
 
         <!-- Section: Incident History -->
         <div class="mb-10">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                <h2 class="text-lg font-bold flex items-center gap-2 text-white">
-                    <i class="fa-solid fa-clock-rotate-left text-slate-400"></i>
-                    Remediation History
+                <h2 class="text-base font-bold flex items-center gap-2 text-white uppercase tracking-wider">
+                    <span class="w-1.5 h-4 bg-brand-500 rounded-sm"></span>
+                    Remediation Log Archives
                 </h2>
             </div>
             
@@ -320,13 +360,13 @@
                 </div>
             </div>
 
-            <div class="glass-card rounded-2xl overflow-hidden">
+            <div class="cyber-card rounded-2xl overflow-hidden">
                 {% if not history_incidents %}
                 <div class="p-8 text-center text-slate-500" id="no-history-msg">
                     <p>No historical incidents found.</p>
                 </div>
                 {% else %}
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto custom-scrollbar">
                     <table class="min-w-full divide-y divide-white/5 text-sm text-left" id="history-table">
                         <thead class="bg-white/5 font-semibold text-slate-300">
                             <tr>
@@ -368,12 +408,12 @@
                                     <span class="text-slate-500 flex items-center gap-1.5"><i class="fa-solid fa-question text-3xs"></i>{{ incident.category or 'unknown' }}</span>
                                     {% endif %}
                                 </td>
-                                <td class="px-6 py-4 text-slate-400 max-w-xs truncate">{{ incident.root_cause or '-' }}</td>
-                                <td class="px-6 py-4 font-mono text-2xs text-slate-300 max-w-xs truncate">{{ incident.proposed_fix or '-' }}</td>
+                                <td class="px-6 py-4 text-slate-400 max-w-xs whitespace-pre-wrap break-words">{{ incident.root_cause or '-' }}</td>
+                                <td class="px-6 py-4 font-mono text-2xs text-slate-300 max-w-xs whitespace-pre-wrap break-all">{{ incident.proposed_fix or '-' }}</td>
                                 <td class="px-6 py-4 text-slate-400 text-xs">{{ incident.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                 <td class="px-6 py-4 text-right">
                                     {% if incident.execution_log %}
-                                    <button onclick="showLogsModal('{{ incident.id }}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors">
+                                    <button onclick="showLogsModal('{{ incident.id }}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors border border-white/5">
                                         <i class="fa-solid fa-terminal"></i> Show logs
                                     </button>
                                     <div id="log-data-{{ incident.id }}" class="hidden">{{ incident.execution_log }}</div>
@@ -394,18 +434,18 @@
 
     <!-- Modal for Logs Details -->
     <div id="logs-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="glass-card rounded-2xl max-w-3xl w-full max-h-[80vh] flex flex-col overflow-hidden shadow-2xl">
+        <div class="cyber-card rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
             <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between">
                 <h3 class="text-base font-bold text-white flex items-center gap-2">
-                    <i class="fa-solid fa-terminal text-brand-400"></i>
+                    <i class="fa-solid fa-terminal text-cyber-cyan animate-pulse"></i>
                     Execution Logs & Details
                 </h3>
                 <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-white/5 text-slate-400 hover:text-white flex items-center justify-center transition-colors">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
-            <div class="p-6 overflow-y-auto flex-1 bg-slate-950/50">
-                <pre id="modal-pre" class="font-mono text-xs text-slate-300 whitespace-pre-wrap overflow-x-auto"></pre>
+            <div class="p-6 overflow-y-auto max-h-[60vh] flex-1 bg-slate-950/80 custom-scrollbar">
+                <pre id="modal-pre" class="font-mono text-2xs text-slate-300 whitespace-pre-wrap break-all"></pre>
             </div>
         </div>
     </div>
@@ -414,205 +454,14 @@
     <script>
         let activeCategory = 'all';
         let searchQuery = '';
-        let isSearchActive = false;
-        let originalRowsHtml = '';
+        let systemSettings = { silent_mode: false, autopilot: false };
 
         document.addEventListener('DOMContentLoaded', () => {
-            const tbody = document.getElementById('history-tbody');
-            if (tbody) {
-                originalRowsHtml = tbody.innerHTML;
-            }
             updateCategoryCounts();
+            // Start dashboard data polling loop (every 5 seconds)
+            pollDashboard();
+            setInterval(pollDashboard, 5000);
         });
-
-        function updateCategoryCounts() {
-            const rows = document.querySelectorAll('.history-row');
-            const counts = {
-                all: 0,
-                network: 0,
-                reverse_proxy: 0,
-                permissions: 0,
-                settings: 0,
-                database: 0,
-                unknown: 0
-            };
-
-            rows.forEach(row => {
-                const cat = row.getAttribute('data-category') || 'unknown';
-                counts.all++;
-                const key = counts.hasOwnProperty(cat) ? cat : 'unknown';
-                counts[key]++;
-            });
-
-            // Update DOM text
-            for (const [cat, count] of Object.entries(counts)) {
-                const badge = document.getElementById(`cnt-${cat}`);
-                if (badge) badge.textContent = count;
-            }
-        }
-
-        function filterCategory(category) {
-            activeCategory = category;
-            
-            // Highlight active pill
-            const pills = document.querySelectorAll('#category-pills button');
-            pills.forEach(pill => {
-                if (pill.id === `pill-${category}`) {
-                    pill.className = "px-3.5 py-1.5 rounded-full text-xs font-semibold bg-brand-600 text-white border border-brand-500 transition-all flex items-center gap-1.5 shadow-md shadow-brand-500/10";
-                } else {
-                    pill.className = "px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 hover:text-slate-200 border border-white/5 transition-all flex items-center gap-1.5";
-                }
-            });
-
-            applyFilterAndSearch();
-        }
-
-        function applyFilterAndSearch() {
-            const rows = document.querySelectorAll('.history-row');
-            rows.forEach(row => {
-                const cat = row.getAttribute('data-category') || 'unknown';
-                const matchesCategory = (activeCategory === 'all' || cat === activeCategory);
-                
-                if (matchesCategory) {
-                    row.classList.remove('hidden');
-                } else {
-                    row.classList.add('hidden');
-                }
-            });
-        }
-
-        // Debounce helper for search
-        let searchTimeout = null;
-        function debounceSearch(event) {
-            clearTimeout(searchTimeout);
-            const searchSpinner = document.getElementById('search-spinner');
-            if (searchSpinner) searchSpinner.classList.remove('hidden');
-            
-            searchTimeout = setTimeout(() => {
-                performSearch(event.target.value);
-            }, 400);
-        }
-
-        function performSearch(query) {
-            const searchSpinner = document.getElementById('search-spinner');
-            searchQuery = query.trim();
-            
-            if (!searchQuery) {
-                isSearchActive = false;
-                if (searchSpinner) searchSpinner.classList.add('hidden');
-                
-                // Restore original rows
-                const tbody = document.getElementById('history-tbody');
-                if (tbody) {
-                    tbody.innerHTML = originalRowsHtml;
-                }
-                applyFilterAndSearch();
-                updateCategoryCounts();
-                return;
-            }
-
-            isSearchActive = true;
-            fetch(`/api/incidents/search?q=${encodeURIComponent(searchQuery)}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (searchSpinner) searchSpinner.classList.add('hidden');
-                    const tbody = document.getElementById('history-tbody');
-                    if (!tbody) return;
-
-                    if (data.length === 0) {
-                        tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-slate-500">No matching incident memory found for "${searchQuery}"</td></tr>`;
-                        updateCategoryCounts();
-                        return;
-                    }
-
-                    let newHtml = '';
-                    data.forEach(inc => {
-                        let statusClass = '';
-                        if (inc.status === 'RESOLVED') statusClass = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-                        else if (inc.status === 'FAILED') statusClass = 'bg-red-500/10 text-red-400 border border-red-500/20';
-                        else if (inc.status === 'DEFERRED') statusClass = 'bg-slate-500/10 text-slate-400 border border-slate-500/20';
-                        else if (inc.status === 'IGNORED') statusClass = 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
-
-                        let categoryLabel = '';
-                        if (inc.category === 'network') categoryLabel = '<span class="text-sky-400 flex items-center gap-1.5"><i class="fa-solid fa-globe text-3xs"></i>network</span>';
-                        else if (inc.category === 'reverse_proxy') categoryLabel = '<span class="text-purple-400 flex items-center gap-1.5"><i class="fa-solid fa-shuffle text-3xs"></i>proxy</span>';
-                        else if (inc.category === 'permissions') categoryLabel = '<span class="text-amber-400 flex items-center gap-1.5"><i class="fa-solid fa-key text-3xs"></i>permissions</span>';
-                        else if (inc.category === 'settings') categoryLabel = '<span class="text-blue-400 flex items-center gap-1.5"><i class="fa-solid fa-gear text-3xs"></i>settings</span>';
-                        else if (inc.category === 'database') categoryLabel = '<span class="text-indigo-400 flex items-center gap-1.5"><i class="fa-solid fa-database text-3xs"></i>database</span>';
-                        else categoryLabel = `<span class="text-slate-500 flex items-center gap-1.5"><i class="fa-solid fa-question text-3xs"></i>${inc.category || 'unknown'}</span>`;
-
-                        const formattedDate = inc.completed_at ? inc.completed_at.replace('T', ' ').substring(0, 19) : '-';
-
-                        newHtml += `
-                            <tr class="hover:bg-white/[0.01] transition-colors align-top history-row" data-category="${inc.category || 'unknown'}">
-                                <td class="px-6 py-4">
-                                    <div class="flex flex-col gap-1">
-                                        <span class="px-2 py-0.5 rounded-full text-2xs font-semibold uppercase tracking-wider ${statusClass}">
-                                            ${inc.status}
-                                        </span>
-                                        <span class="text-3xs text-brand-400 font-semibold tracking-wider">MATCH: ${(inc.score * 100).toFixed(0)}%</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 font-bold text-white">${inc.target_id}</td>
-                                <td class="px-6 py-4 font-medium capitalize">${categoryLabel}</td>
-                                <td class="px-6 py-4 text-slate-400 max-w-xs truncate" title="${inc.root_cause}">${inc.root_cause || '-'}</td>
-                                <td class="px-6 py-4 font-mono text-2xs text-slate-300 max-w-xs truncate" title="${inc.proposed_fix}">${inc.proposed_fix || '-'}</td>
-                                <td class="px-6 py-4 text-slate-400 text-xs">${formattedDate}</td>
-                                <td class="px-6 py-4 text-right">-</td>
-                            </tr>
-                        `;
-                    });
-                    tbody.innerHTML = newHtml;
-                    applyFilterAndSearch();
-                    updateCategoryCounts();
-                })
-                .catch(err => {
-                    if (searchSpinner) searchSpinner.classList.add('hidden');
-                    console.error('Search failed:', err);
-                });
-        }
-
-        function handleWebhook(incidentId, action) {
-            const token = "{{ token }}";
-            fetch(`/api/webhooks/${incidentId}?token=${token}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: action })
-            })
-            .then(res => {
-                if(res.ok) {
-                    location.reload();
-                } else {
-                    alert('Action failed. See server logs.');
-                }
-            });
-        }
-
-        function unignoreTarget(targetId) {
-            fetch(`/api/targets/${targetId}/unignore`, {
-                method: 'POST'
-            })
-            .then(res => {
-                if(res.ok) {
-                    location.reload();
-                } else {
-                    alert('Failed to unignore target.');
-                }
-            });
-        }
-
-        function showLogsModal(incidentId) {
-            const logContent = document.getElementById(`log-data-${incidentId}`).textContent;
-            document.getElementById('modal-pre').textContent = logContent;
-            document.getElementById('logs-modal').classList.remove('hidden');
-        }
-
-        function closeModal() {
-            document.getElementById('logs-modal').classList.add('hidden');
-        }
-
-        // Global Settings management
-        let systemSettings = { silent_mode: false, autopilot: false };
 
         function loadSettings() {
             fetch('/api/settings')
@@ -675,19 +524,413 @@
             .catch(err => console.error('Failed to toggle setting:', err));
         }
 
-        // Call on load
-        loadSettings();
-
-        // Auto reload page every 15s to fetch status changes (only if search/filter is inactive)
-        setInterval(() => {
+        function pollDashboard() {
             const isModalOpen = !document.getElementById('logs-modal').classList.contains('hidden');
             const searchInput = document.getElementById('search-input');
             const isSearching = searchInput && searchInput.value.trim().length > 0;
-            
-            if (activeCategory === 'all' && !isSearching && !isModalOpen) {
-                location.reload();
+
+            loadSettings();
+
+            fetch('/api/dashboard')
+                .then(res => res.json())
+                .then(data => {
+                    // Update stats counters
+                    document.getElementById('widget-active-count').textContent = data.active_count;
+                    document.getElementById('widget-resolved-count').textContent = data.resolved_count;
+                    document.getElementById('widget-targets-count').textContent = data.targets_count;
+                    document.getElementById('widget-ignored-count').textContent = data.ignored_count;
+
+                    // Redraw active failure cards
+                    renderActiveIncidents(data.active_incidents);
+
+                    // Redraw ignored containers table
+                    renderIgnoredTargets(data.ignored_targets);
+
+                    // Redraw history list ONLY if the user is not actively searching
+                    if (!isSearching && !isModalOpen) {
+                        renderHistoryIncidents(data.history_incidents);
+                    }
+                })
+                .catch(err => console.error('Failed to poll dashboard data:', err));
+        }
+
+        function renderActiveIncidents(list) {
+            const container = document.getElementById('active-incidents-container');
+            if (!container) return;
+
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div class="cyber-card rounded-2xl p-8 text-center text-slate-400 border border-dashed border-white/5 shadow-inner">
+                        <i class="fa-solid fa-circle-check text-emerald-400 text-4xl mb-3"></i>
+                        <p class="font-semibold text-slate-200">All services healthy. No active failures detected.</p>
+                        <p class="text-xs mt-1 text-slate-500">AutoHeal is continuously listening for container daemon crash events.</p>
+                    </div>
+                `;
+                return;
             }
-        }, 15000);
+
+            let html = '<div class="space-y-6">';
+            list.forEach(inc => {
+                let badgeClass = "";
+                if (inc.status === 'DETECTED') badgeClass = "bg-red-500/10 text-red-400 border border-red-500/20";
+                else if (inc.status === 'INVESTIGATING') badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse";
+                else if (inc.status === 'PENDING_USER') badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                else if (inc.status === 'FIXING') badgeClass = "bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse";
+
+                let actionHtml = "";
+                if (inc.status === 'PENDING_USER') {
+                    actionHtml = `
+                        <div class="flex items-center gap-2">
+                            <button onclick="handleWebhook('${inc.id}', 'fix')" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-600/15">
+                                <i class="fa-solid fa-play"></i> Fix Now
+                            </button>
+                            <button onclick="handleWebhook('${inc.id}', 'defer')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-white/5">
+                                <i class="fa-solid fa-hourglass-half"></i> Defer 24h
+                            </button>
+                            <button onclick="handleWebhook('${inc.id}', 'ignore')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-white/5">
+                                <i class="fa-solid fa-bell-slash"></i> Ignore Target
+                            </button>
+                        </div>
+                    `;
+                }
+
+                let diagnosisHtml = "";
+                if (inc.status === 'DETECTED' || inc.status === 'INVESTIGATING') {
+                    diagnosisHtml = `
+                        <div class="flex flex-col items-center justify-center py-10 text-center text-slate-500 flex-1">
+                            <i class="fa-solid fa-spinner fa-spin text-brand-400 text-2xl mb-3"></i>
+                            <p class="font-medium text-slate-400 text-sm">LLM Agent is investigating error logs...</p>
+                            <p class="text-xs text-slate-500 mt-1">Analyzing root causes and mapping host environments.</p>
+                        </div>
+                    `;
+                } else {
+                    let proposedFixPre = inc.proposed_fix ? inc.proposed_fix : '-';
+                    diagnosisHtml = `
+                        <div class="space-y-4">
+                            <div>
+                                <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5 mb-1 uppercase tracking-wider">Root Cause</h4>
+                                <p class="text-sm text-slate-200">${inc.root_cause || '-'}</p>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5 mb-1 uppercase tracking-wider">Proposed Script</h4>
+                                <pre class="bg-black/30 border border-white/5 rounded-lg p-2.5 font-mono text-xs text-emerald-400 whitespace-pre-wrap break-all overflow-x-auto max-h-40 overflow-y-auto shadow-inner">${proposedFixPre}</pre>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                let statusInfoHtml = "";
+                if (inc.status === 'FIXING') {
+                    statusInfoHtml = `
+                        <div class="bg-brand-500/10 border border-brand-500/20 rounded-lg p-3 flex items-center gap-2.5 text-xs text-brand-300 mt-3 shadow-inner">
+                            <i class="fa-solid fa-spinner fa-spin text-brand-400"></i>
+                            Executing proposed bash remediation and validating health...
+                        </div>
+                    `;
+                }
+
+                const dateStr = inc.created_at.replace('T', ' ').substring(0, 19);
+
+                html += `
+                    <div class="cyber-card rounded-2xl p-6 glow-hover transition-all duration-300">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 pb-4 border-b border-white/5">
+                            <div class="flex items-center gap-3">
+                                <span class="px-3 py-1 rounded-full text-2xs font-semibold uppercase tracking-wider ${badgeClass}">
+                                    ${inc.status}
+                                </span>
+                                <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <i class="fa-solid fa-cube text-slate-500"></i>
+                                    ${inc.target_id}
+                                </h3>
+                                <span class="text-xs text-slate-500">${dateStr}</span>
+                            </div>
+                            ${actionHtml}
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <!-- Left: logs -->
+                            <div class="flex flex-col">
+                                <span class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Error Log Snapshot</span>
+                                <pre class="bg-black/40 border border-white/5 rounded-xl p-4 font-mono text-xs text-rose-300 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-all shadow-inner flex-1">${inc.error_logs || '-'}</pre>
+                            </div>
+                            <!-- Right: diagnosis -->
+                            <div class="flex flex-col justify-between">
+                                <div>
+                                    <span class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider block">AI Diagnosis</span>
+                                    <div class="bg-brand-950/10 border border-brand-500/5 rounded-xl p-4 flex flex-col justify-center">
+                                        ${diagnosisHtml}
+                                    </div>
+                                </div>
+                                ${statusInfoHtml}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function renderIgnoredTargets(list) {
+            const container = document.getElementById('ignored-targets-section');
+            if (!container) return;
+
+            if (list.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            container.classList.remove('hidden');
+            const tbody = document.getElementById('ignored-targets-tbody');
+            if (!tbody) return;
+
+            let html = "";
+            list.forEach(targ => {
+                let dateDisplay = "";
+                if (targ.ignored_until && targ.ignored_until.startsWith("9999-12-31")) {
+                    dateDisplay = "Permanently Ignored";
+                } else {
+                    dateDisplay = targ.ignored_until ? targ.ignored_until.replace('T', ' ').substring(0, 19) + " UTC" : '-';
+                }
+
+                html += `
+                    <tr class="hover:bg-white/[0.01] transition-colors align-middle">
+                        <td class="px-6 py-4 font-bold text-white">${targ.id}</td>
+                        <td class="px-6 py-4 text-slate-400">${targ.type}</td>
+                        <td class="px-6 py-4 text-rose-400 font-semibold">${dateDisplay}</td>
+                        <td class="px-6 py-4 text-right">
+                            <button onclick="unignoreTarget('${targ.id}')" class="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-semibold text-xs transition-colors">
+                                <i class="fa-solid fa-bell"></i> Unignore
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function renderHistoryIncidents(list) {
+            const tbody = document.getElementById('history-tbody');
+            if (!tbody) return;
+
+            let html = "";
+            list.forEach(inc => {
+                let statusClass = "";
+                if (inc.status === 'RESOLVED') statusClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                else if (inc.status === 'FAILED') statusClass = "bg-red-500/10 text-red-400 border border-red-500/20";
+                else if (inc.status === 'DEFERRED') statusClass = "bg-slate-500/10 text-slate-400 border border-slate-500/20";
+                else if (inc.status === 'IGNORED') statusClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
+
+                let categoryLabel = "";
+                if (inc.category === 'network') categoryLabel = `<span class="text-sky-400 flex items-center gap-1.5"><i class="fa-solid fa-globe text-3xs"></i>network</span>`;
+                else if (inc.category === 'reverse_proxy') categoryLabel = `<span class="text-purple-400 flex items-center gap-1.5"><i class="fa-solid fa-shuffle text-3xs"></i>proxy</span>`;
+                else if (inc.category === 'permissions') categoryLabel = `<span class="text-amber-400 flex items-center gap-1.5"><i class="fa-solid fa-key text-3xs"></i>permissions</span>`;
+                else if (inc.category === 'settings') categoryLabel = `<span class="text-blue-400 flex items-center gap-1.5"><i class="fa-solid fa-gear text-3xs"></i>settings</span>`;
+                else if (inc.category === 'database') categoryLabel = `<span class="text-indigo-400 flex items-center gap-1.5"><i class="fa-solid fa-database text-3xs"></i>database</span>`;
+                else categoryLabel = `<span class="text-slate-500 flex items-center gap-1.5"><i class="fa-solid fa-question text-3xs"></i>${inc.category || 'unknown'}</span>`;
+
+                const formattedDate = inc.completed_at ? inc.completed_at.replace('T', ' ').substring(0, 19) : '-';
+
+                let logButtonHtml = '<span class="text-slate-600">-</span>';
+                if (inc.execution_log) {
+                    logButtonHtml = `
+                        <button onclick="showLogsModal('${inc.id}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors border border-white/5">
+                            <i class="fa-solid fa-terminal"></i> Show logs
+                        </button>
+                        <div id="log-data-${inc.id}" class="hidden">${inc.execution_log}</div>
+                    `;
+                }
+
+                html += `
+                    <tr class="hover:bg-white/[0.01] transition-colors align-top history-row" data-category="${inc.category || 'unknown'}">
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-0.5 rounded-full text-2xs font-semibold uppercase tracking-wider ${statusClass}">
+                                ${inc.status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 font-bold text-white">${inc.target_id}</td>
+                        <td class="px-6 py-4 font-medium capitalize">${categoryLabel}</td>
+                        <td class="px-6 py-4 text-slate-400 max-w-xs whitespace-pre-wrap break-words">${inc.root_cause || '-'}</td>
+                        <td class="px-6 py-4 font-mono text-2xs text-slate-300 max-w-xs whitespace-pre-wrap break-all">${inc.proposed_fix || '-'}</td>
+                        <td class="px-6 py-4 text-slate-400 text-xs">${formattedDate}</td>
+                        <td class="px-6 py-4 text-right">${logButtonHtml}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+            applyFilterAndSearch();
+            updateCategoryCounts();
+        }
+
+        function updateCategoryCounts() {
+            const rows = document.querySelectorAll('.history-row');
+            const counts = {
+                all: 0,
+                network: 0,
+                reverse_proxy: 0,
+                permissions: 0,
+                settings: 0,
+                database: 0,
+                unknown: 0
+            };
+
+            rows.forEach(row => {
+                const cat = row.getAttribute('data-category') || 'unknown';
+                counts.all++;
+                const key = counts.hasOwnProperty(cat) ? cat : 'unknown';
+                counts[key]++;
+            });
+
+            for (const [cat, count] of Object.entries(counts)) {
+                const badge = document.getElementById(`cnt-${cat}`);
+                if (badge) badge.textContent = count;
+            }
+        }
+
+        function filterCategory(category) {
+            activeCategory = category;
+            
+            const pills = document.querySelectorAll('#category-pills button');
+            pills.forEach(pill => {
+                if (pill.id === `pill-${category}`) {
+                    pill.className = "px-3.5 py-1.5 rounded-full text-xs font-semibold bg-brand-600 text-white border border-brand-500 transition-all flex items-center gap-1.5 shadow-md shadow-brand-500/10";
+                } else {
+                    pill.className = "px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-slate-400 hover:text-slate-200 border border-white/5 transition-all flex items-center gap-1.5";
+                }
+            });
+
+            applyFilterAndSearch();
+        }
+
+        function applyFilterAndSearch() {
+            const rows = document.querySelectorAll('.history-row');
+            rows.forEach(row => {
+                const cat = row.getAttribute('data-category') || 'unknown';
+                const matchesCategory = (activeCategory === 'all' || cat === activeCategory);
+                
+                if (matchesCategory) {
+                    row.classList.remove('hidden');
+                } else {
+                    row.classList.add('hidden');
+                }
+            });
+        }
+
+        let searchTimeout = null;
+        function debounceSearch(event) {
+            clearTimeout(searchTimeout);
+            const searchSpinner = document.getElementById('search-spinner');
+            if (searchSpinner) searchSpinner.classList.remove('hidden');
+            
+            searchTimeout = setTimeout(() => {
+                performSearch(event.target.value);
+            }, 400);
+        }
+
+        function performSearch(query) {
+            const searchSpinner = document.getElementById('search-spinner');
+            searchQuery = query.trim();
+            
+            if (!searchQuery) {
+                if (searchSpinner) searchSpinner.classList.add('hidden');
+                pollDashboard(); // immediately restore normal list
+                return;
+            }
+
+            fetch(`/api/incidents/search?q=${encodeURIComponent(searchQuery)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (searchSpinner) searchSpinner.classList.add('hidden');
+                    
+                    const tbody = document.getElementById('history-tbody');
+                    if (!tbody) return;
+
+                    let newHtml = '';
+                    data.forEach(inc => {
+                        let statusClass = "";
+                        if (inc.status === 'RESOLVED') statusClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                        else if (inc.status === 'FAILED') statusClass = "bg-red-500/10 text-red-400 border border-red-500/20";
+                        else if (inc.status === 'DEFERRED') statusClass = "bg-slate-500/10 text-slate-400 border border-slate-500/20";
+                        else if (inc.status === 'IGNORED') statusClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
+
+                        let categoryLabel = "";
+                        if (inc.category === 'network') categoryLabel = `<span class="text-sky-400 flex items-center gap-1.5"><i class="fa-solid fa-globe text-3xs"></i>network</span>`;
+                        else if (inc.category === 'reverse_proxy') categoryLabel = `<span class="text-purple-400 flex items-center gap-1.5"><i class="fa-solid fa-shuffle text-3xs"></i>proxy</span>`;
+                        else if (inc.category === 'permissions') categoryLabel = `<span class="text-amber-400 flex items-center gap-1.5"><i class="fa-solid fa-key text-3xs"></i>permissions</span>`;
+                        else if (inc.category === 'settings') categoryLabel = `<span class="text-blue-400 flex items-center gap-1.5"><i class="fa-solid fa-gear text-3xs"></i>settings</span>`;
+                        else if (inc.category === 'database') categoryLabel = `<span class="text-indigo-400 flex items-center gap-1.5"><i class="fa-solid fa-database text-3xs"></i>database</span>`;
+                        else categoryLabel = `<span class="text-slate-500 flex items-center gap-1.5"><i class="fa-solid fa-question text-3xs"></i>${inc.category || 'unknown'}</span>`;
+
+                        const formattedDate = inc.completed_at ? inc.completed_at.replace('T', ' ').substring(0, 19) : '-';
+
+                        newHtml += `
+                            <tr class="hover:bg-white/[0.01] transition-colors align-top history-row" data-category="${inc.category || 'unknown'}">
+                                <td class="px-6 py-4">
+                                    <div class="flex flex-col gap-1">
+                                        <span class="px-2 py-0.5 rounded-full text-2xs font-semibold uppercase tracking-wider ${statusClass}">
+                                            ${inc.status}
+                                        </span>
+                                        <span class="text-3xs text-brand-400 font-semibold tracking-wider">MATCH: ${(inc.score * 100).toFixed(0)}%</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 font-bold text-white">${inc.target_id}</td>
+                                <td class="px-6 py-4 font-medium capitalize">${categoryLabel}</td>
+                                <td class="px-6 py-4 text-slate-400 max-w-xs whitespace-pre-wrap break-words" title="${inc.root_cause}">${inc.root_cause || '-'}</td>
+                                <td class="px-6 py-4 font-mono text-2xs text-slate-300 max-w-xs whitespace-pre-wrap break-all" title="${inc.proposed_fix}">${inc.proposed_fix || '-'}</td>
+                                <td class="px-6 py-4 text-slate-400 text-xs">${formattedDate}</td>
+                                <td class="px-6 py-4 text-right">-</td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = newHtml;
+                    applyFilterAndSearch();
+                    updateCategoryCounts();
+                })
+                .catch(err => {
+                    if (searchSpinner) searchSpinner.classList.add('hidden');
+                    console.error('Search failed:', err);
+                });
+        }
+
+        function handleWebhook(incidentId, action) {
+            const token = "{{ token }}";
+            fetch(`/api/webhooks/${incidentId}?token=${token}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            })
+            .then(res => {
+                if(res.ok) {
+                    pollDashboard(); // immediately fetch fresh status instead of full reload!
+                } else {
+                    alert('Action failed. See server logs.');
+                }
+            });
+        }
+
+        function unignoreTarget(targetId) {
+            fetch(`/api/targets/${targetId}/unignore`, {
+                method: 'POST'
+            })
+            .then(res => {
+                if(res.ok) {
+                    pollDashboard(); // immediately fetch fresh status instead of full reload!
+                } else {
+                    alert('Failed to unignore target.');
+                }
+            });
+        }
+
+        function showLogsModal(incidentId) {
+            const logContent = document.getElementById(`log-data-${incidentId}`).textContent;
+            document.getElementById('modal-pre').textContent = logContent;
+            document.getElementById('logs-modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('logs-modal').classList.add('hidden');
+        }
     </script>
 </body>
 </html>
