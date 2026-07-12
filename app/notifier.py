@@ -19,15 +19,6 @@ def safe_header(value: str) -> str:
 
 logger = logging.getLogger("Notifier")
 
-NTFY_URL = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com").rstrip("/")
-NTFY_TOPIC = os.getenv("NTFY_TOPIC", "alerts")
-NTFY_USER = os.getenv("NTFY_USER", "steve")
-NTFY_PASS = os.getenv("NTFY_PASS")
-WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://monitorbot.wileyriley.com").rstrip("/")
-WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN")
-if not WEBHOOK_TOKEN:
-    raise ValueError("WEBHOOK_TOKEN environment variable must be set!")
-
 def send_telegram_notification(title: str, body: str, incident_id: str = None):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -70,13 +61,23 @@ def send_telegram_notification(title: str, body: str, incident_id: str = None):
         logger.error(f"Error sending Telegram notification: {e}")
 
 def get_auth_header():
-    if NTFY_USER and NTFY_PASS:
-        user_pass = f"{NTFY_USER}:{NTFY_PASS}"
+    ntfy_user = os.getenv("NTFY_USER", "steve")
+    ntfy_pass = os.getenv("NTFY_PASS")
+    if ntfy_user and ntfy_pass:
+        user_pass = f"{ntfy_user}:{ntfy_pass}"
         encoded = base64.b64encode(user_pass.encode("utf-8")).decode("utf-8")
         return f"Basic {encoded}"
     return None
 
 def send_incident_notification(incident_id: str):
+    ntfy_url = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com").rstrip("/")
+    ntfy_topic = os.getenv("NTFY_TOPIC", "alerts")
+    webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "https://monitorbot.wileyriley.com").rstrip("/")
+    webhook_token = os.getenv("WEBHOOK_TOKEN")
+    if not webhook_token:
+        logger.error("WEBHOOK_TOKEN environment variable not set!")
+        return
+
     db: Session = SessionLocal()
     try:
         incident = db.query(Incident).filter(Incident.id == incident_id).first()
@@ -98,7 +99,7 @@ def send_incident_notification(incident_id: str):
         # Always try to send to Telegram as well if configured
         send_telegram_notification(title, message_body, incident_id)
 
-        webhook_url = f"{WEBHOOK_BASE_URL}/api/webhooks/{incident_id}?token={WEBHOOK_TOKEN}"
+        webhook_url = f"{webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
 
         # Construct Action Buttons Header
         # ntfy supports: http, Label, URL, method=POST, body=JSON
@@ -119,7 +120,7 @@ def send_incident_notification(incident_id: str):
         if auth:
             headers["Authorization"] = auth
 
-        url = f"{NTFY_URL}/{NTFY_TOPIC}"
+        url = f"{ntfy_url}/{ntfy_topic}"
         logger.info(f"Sending notification for incident {incident_id} to {url}...")
         
         try:
@@ -134,8 +135,11 @@ def send_incident_notification(incident_id: str):
             logger.warning(f"Failed to connect to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
 
         # Fallback to local URL and local action webhook
-        local_ntfy_url = f"http://localhost:9010/{NTFY_TOPIC}"
-        local_webhook_url = f"http://10.0.0.10:9013/api/webhooks/{incident_id}?token={WEBHOOK_TOKEN}"
+        ntfy_fallback_url = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
+        local_webhook_base_url = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://localhost:9013").rstrip("/")
+        
+        local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
+        local_webhook_url = f"{local_webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
         
         local_actions_str = (
             f"http, Fix Now (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
@@ -165,6 +169,9 @@ def send_incident_notification(incident_id: str):
         db.close()
 
 def send_followup_notification(incident_id: str, message: str, success: bool):
+    ntfy_url = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com").rstrip("/")
+    ntfy_topic = os.getenv("NTFY_TOPIC", "alerts")
+
     db: Session = SessionLocal()
     try:
         incident = db.query(Incident).filter(Incident.id == incident_id).first()
@@ -189,7 +196,7 @@ def send_followup_notification(incident_id: str, message: str, success: bool):
         if auth:
             headers["Authorization"] = auth
 
-        url = f"{NTFY_URL}/{NTFY_TOPIC}"
+        url = f"{ntfy_url}/{ntfy_topic}"
         logger.info(f"Sending follow-up notification for {incident_id} to {url}...")
         
         try:
@@ -204,7 +211,8 @@ def send_followup_notification(incident_id: str, message: str, success: bool):
             logger.warning(f"Failed to send follow-up to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
 
         # Fallback to local URL
-        local_ntfy_url = f"http://localhost:9010/{NTFY_TOPIC}"
+        ntfy_fallback_url = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
+        local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
         fallback_headers = {
             "Title": safe_header(f"{title} (Local Fallback)"),
             "Priority": "default",

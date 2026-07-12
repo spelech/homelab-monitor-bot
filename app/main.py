@@ -37,7 +37,7 @@ PORT = int(os.getenv("PORT", "9013"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
 # Setup templates
-templates = Jinja2Templates(directory="/containers/monitorbot/app/templates")
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

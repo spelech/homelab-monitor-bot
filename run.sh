@@ -2,8 +2,9 @@
 # Startup script for AutoHeal SRE MonitorBot
 # Runs uvicorn to serve the FastAPI application on host port 9013
 
-export PYTHONPATH=/containers/monitorbot
-cd /containers/monitorbot
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$SCRIPT_DIR"
+cd "$SCRIPT_DIR"
 
 # Read configuration from .env if present
 if [ -f .env ]; then

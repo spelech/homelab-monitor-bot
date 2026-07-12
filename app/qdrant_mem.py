@@ -7,7 +7,7 @@ logger = logging.getLogger("QdrantMemory")
 
 # Create local Qdrant data directory
 QDRANT_URL = os.getenv("QDRANT_URL")
-QDRANT_PATH = "/containers/monitorbot/qdrant_data"
+QDRANT_PATH = os.path.join(os.getcwd(), "qdrant_data")
 os.makedirs(QDRANT_PATH, exist_ok=True)
 
 class QdrantMemory:
