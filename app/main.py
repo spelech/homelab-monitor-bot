@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from typing import List
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Query, HTTPException, Request, BackgroundTasks
@@ -8,10 +10,17 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from app.database import init_db, get_db, Target, Incident
+from app.database import init_db, get_db, Target, Incident, SessionLocal
 from app.watcher import start_watcher_thread
 from app.scheduler import start_scheduler
 from app.remediator import run_remediation
+
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from mcp.types import Tool, TextContent
+
+mcp_server = Server("monitorbot-mcp")
+sse_transport = SseServerTransport("/messages/")
 
 # Configure logging
 logging.basicConfig(
@@ -170,3 +179,144 @@ def get_history_incidents(db: Session = Depends(get_db)):
     active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
     incidents = db.query(Incident).filter(Incident.status.notin_(active_statuses)).all()
     return incidents
+
+@app.get("/api/incidents/search")
+def search_incidents(q: str = Query(...), db: Session = Depends(get_db)):
+    from app.qdrant_mem import qdrant_mem
+    # Perform semantic query in Qdrant
+    matches = qdrant_mem.semantic_search(q, limit=10)
+    if not matches:
+        return []
+    
+    # Retrieve incident details from SQL using matched IDs
+    incident_ids = [match.id for match in matches]
+    incidents = db.query(Incident).filter(Incident.id.in_(incident_ids)).all()
+    
+    # Sort incidents in order of their Qdrant match score
+    id_to_score = {match.id: match.score for match in matches}
+    sorted_incidents = sorted(incidents, key=lambda x: id_to_score.get(x.id, 0), reverse=True)
+    
+    # Return formatted results with similarity scores
+    results = []
+    for inc in sorted_incidents:
+        results.append({
+            "id": inc.id,
+            "target_id": inc.target_id,
+            "status": inc.status,
+            "category": inc.category or "unknown",
+            "root_cause": inc.root_cause,
+            "proposed_fix": inc.proposed_fix,
+            "completed_at": inc.completed_at.isoformat() if inc.completed_at else None,
+            "score": id_to_score.get(inc.id, 0)
+        })
+    return results
+
+# ----------------------------------------------------
+# MCP SERVER INTEGRATION
+# ----------------------------------------------------
+
+@mcp_server.list_tools()
+async def list_tools() -> List[Tool]:
+    return [
+        Tool(
+            name="search_incidents",
+            description="Perform semantic search on past resolved Docker incidents to find resolutions.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query (e.g. permission error, network timeout)"},
+                    "limit": {"type": "integer", "description": "Max number of incidents to return.", "default": 5}
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="get_incident_history",
+            description="Get chronological history of incidents for a target container.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target_id": {"type": "string", "description": "Name of the target Docker container."},
+                    "limit": {"type": "integer", "description": "Max history size.", "default": 10}
+                },
+                "required": ["target_id"]
+            }
+        ),
+        Tool(
+            name="trigger_remediation",
+            description="Approve and trigger automated SRE remediation command for a PENDING_USER incident.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "incident_id": {"type": "string", "description": "UUID of the active incident."}
+                },
+                "required": ["incident_id"]
+            }
+        )
+    ]
+
+@mcp_server.call_tool()
+async def call_tool(name: str, arguments: dict) -> List[TextContent]:
+    db = SessionLocal()
+    try:
+        if name == "search_incidents":
+            query = arguments["query"]
+            limit = arguments.get("limit", 5)
+            # Perform search in Qdrant
+            from app.qdrant_mem import qdrant_mem
+            matches = qdrant_mem.semantic_search(query, limit=limit)
+            if not matches:
+                return [TextContent(type="text", text="No similar incidents found in memory.")]
+            
+            # Map matches to SQL
+            results = []
+            for hit in matches:
+                inc = db.query(Incident).filter(Incident.id == hit.id).first()
+                if inc:
+                    results.append(
+                        f"Incident ID: {inc.id}\nTarget: {inc.target_id}\nCategory: {inc.category or 'unknown'}\n"
+                        f"Score: {hit.score:.4f}\nRoot Cause: {inc.root_cause}\nFix: {inc.proposed_fix}\n"
+                        f"----------------------------------------"
+                    )
+            return [TextContent(type="text", text="\n\n".join(results) if results else "No matching incidents in database.")]
+            
+        elif name == "get_incident_history":
+            target_id = arguments["target_id"]
+            limit = arguments.get("limit", 10)
+            rows = db.query(Incident).filter(Incident.target_id == target_id).order_by(Incident.created_at.desc()).limit(limit).all()
+            if not rows:
+                return [TextContent(type="text", text=f"No incident history found for container '{target_id}'")]
+            
+            history = []
+            for r in rows:
+                history.append(f"[{r.created_at}] Status: {r.status} | Category: {r.category or 'unknown'}\nCause: {r.root_cause}\nFix: {r.proposed_fix}")
+            return [TextContent(type="text", text="\n\n".join(history))]
+            
+        elif name == "trigger_remediation":
+            incident_id = arguments["incident_id"]
+            incident = db.query(Incident).filter(Incident.id == incident_id).first()
+            if not incident:
+                return [TextContent(type="text", text="Error: Incident not found.")]
+            if incident.status in ["FIXING", "RESOLVED"]:
+                return [TextContent(type="text", text=f"Incident already processed in state {incident.status}")]
+            
+            incident.status = "FIXING"
+            db.commit()
+            
+            # Trigger remediation async
+            from app.remediator import run_remediation
+            threading.Thread(target=run_remediation, args=(incident_id,), daemon=True).start()
+            return [TextContent(type="text", text=f"Remediation spawned for incident {incident_id} on target {incident.target_id}")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error executing tool: {e}")]
+    finally:
+        db.close()
+
+# Mount SSE endpoints
+@app.get("/sse")
+async def sse_endpoint(request: Request):
+    logger.info("New MCP client SSE connection requested.")
+    async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+        await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
+
+app.mount("/messages", sse_transport.handle_post_message)
