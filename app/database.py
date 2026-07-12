@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, String, DateTime, Text, ForeignKey, Enum
+from sqlalchemy import create_engine, Column, String, DateTime, Text, ForeignKey, Enum, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
@@ -30,10 +30,20 @@ class Incident(Base):
     proposed_fix = Column(Text, nullable=True)
     execution_log = Column(Text, nullable=True)
     deferred_until = Column(DateTime, nullable=True)
+    category = Column(String, nullable=True)  # network, reverse_proxy, permissions, settings, database, unknown
+    completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # Perform a lightweight schema migration to add new columns if they do not exist
+    inspector = inspect(engine)
+    columns = [col['name'] for col in inspector.get_columns('incidents')]
+    with engine.begin() as conn:
+        if 'category' not in columns:
+            conn.execute(text("ALTER TABLE incidents ADD COLUMN category VARCHAR;"))
+        if 'completed_at' not in columns:
+            conn.execute(text("ALTER TABLE incidents ADD COLUMN completed_at DATETIME;"))
 
 def get_db():
     db = SessionLocal()

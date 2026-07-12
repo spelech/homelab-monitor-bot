@@ -2,6 +2,7 @@ import time
 import logging
 import subprocess
 import docker
+from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, Incident
 from app.notifier import send_followup_notification
@@ -85,6 +86,7 @@ def run_remediation(incident_id: str):
         if is_healthy:
             logger.info(f"Target '{target_id}' verified healthy ({status_detail}). Marking RESOLVED.")
             incident.status = "RESOLVED"
+            incident.completed_at = datetime.utcnow()
             db.commit()
 
             # Learn successful resolution in Qdrant (Phase 6)
@@ -103,6 +105,7 @@ def run_remediation(incident_id: str):
         else:
             logger.error(f"Target '{target_id}' verification failed: {status_detail}. Marking FAILED.")
             incident.status = "FAILED"
+            incident.completed_at = datetime.utcnow()
             db.commit()
 
             # Send failure notification
@@ -116,6 +119,7 @@ def run_remediation(incident_id: str):
     except subprocess.TimeoutExpired:
         logger.error(f"Remediation timed out for incident {incident_id}")
         incident.status = "FAILED"
+        incident.completed_at = datetime.utcnow()
         incident.execution_log = f"Remediation timed out.\nProposed fix:\n{proposed_fix}"
         db.commit()
         send_followup_notification(
@@ -127,6 +131,7 @@ def run_remediation(incident_id: str):
         logger.error(f"Error in run_remediation for {incident_id}: {e}")
         if 'incident' in locals() and incident:
             incident.status = "FAILED"
+            incident.completed_at = datetime.utcnow()
             incident.execution_log = f"Remediation error: {e}"
             db.commit()
             send_followup_notification(
