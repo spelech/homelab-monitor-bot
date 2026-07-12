@@ -97,3 +97,29 @@ async def test_mcp_call_tool_history(db_session):
     assert len(result) == 1
     assert "settings" in result[0].text
     assert "Config parameter mismatch." in result[0].text
+
+def test_api_settings(client, db_session):
+    # Verify defaults seeded in DB
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["silent_mode"] is False
+    assert data["autopilot"] is False
+
+    # Update silent_mode
+    resp = client.post("/api/settings", json={"silent_mode": True})
+    assert resp.status_code == 200
+    
+    resp = client.get("/api/settings")
+    data = resp.json()
+    assert data["silent_mode"] is True
+    assert data["autopilot"] is False
+
+    # Update autopilot
+    resp = client.post("/api/settings", json={"autopilot": True})
+    assert resp.status_code == 200
+
+    resp = client.get("/api/settings")
+    data = resp.json()
+    assert data["silent_mode"] is True
+    assert data["autopilot"] is True

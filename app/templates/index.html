@@ -77,8 +77,20 @@
                         <span class="block text-xs text-slate-500 font-semibold tracking-wider uppercase">L3 Autonomous SRE</span>
                     </div>
                 </div>
-                <div class="flex items-center gap-6">
-                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium">
+                <div class="flex items-center gap-3">
+                    <!-- Silent Mode Toggle -->
+                    <button id="toggle-silent-btn" onclick="toggleSetting('silent_mode')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border border-white/5 bg-slate-800/40 text-slate-400 transition-all duration-300">
+                        <i id="silent-icon" class="fa-solid fa-bell"></i>
+                        <span id="silent-label">Monitoring & Alerts</span>
+                    </button>
+
+                    <!-- Autopilot Toggle -->
+                    <button id="toggle-autopilot-btn" onclick="toggleSetting('autopilot')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border border-white/5 bg-slate-800/40 text-slate-400 transition-all duration-300">
+                        <i id="autopilot-icon" class="fa-solid fa-user-gear"></i>
+                        <span id="autopilot-label">Autopilot Disabled</span>
+                    </button>
+
+                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
                         Watcher Online
                     </div>
@@ -598,6 +610,73 @@
         function closeModal() {
             document.getElementById('logs-modal').classList.add('hidden');
         }
+
+        // Global Settings management
+        let systemSettings = { silent_mode: false, autopilot: false };
+
+        function loadSettings() {
+            fetch('/api/settings')
+                .then(res => res.json())
+                .then(data => {
+                    systemSettings = data;
+                    updateSettingsUI();
+                })
+                .catch(err => console.error('Failed to load settings:', err));
+        }
+
+        function updateSettingsUI() {
+            const silentBtn = document.getElementById('toggle-silent-btn');
+            const silentIcon = document.getElementById('silent-icon');
+            const silentLabel = document.getElementById('silent-label');
+
+            const autopilotBtn = document.getElementById('toggle-autopilot-btn');
+            const autopilotIcon = document.getElementById('autopilot-icon');
+            const autopilotLabel = document.getElementById('autopilot-label');
+
+            if (systemSettings.silent_mode) {
+                silentBtn.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-400 shadow-md shadow-amber-500/5 transition-all duration-300";
+                silentIcon.className = "fa-solid fa-bell-slash";
+                silentLabel.textContent = "Silent Mode (Monitoring Only)";
+            } else {
+                silentBtn.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border border-white/5 bg-slate-800/40 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all duration-300";
+                silentIcon.className = "fa-solid fa-bell";
+                silentLabel.textContent = "Monitoring & Alerts";
+            }
+
+            if (systemSettings.autopilot) {
+                autopilotBtn.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-brand-500/15 border border-brand-500/30 text-brand-400 shadow-md shadow-brand-500/5 transition-all duration-300";
+                autopilotIcon.className = "fa-solid fa-robot";
+                autopilotLabel.textContent = "Autopilot Active";
+            } else {
+                autopilotBtn.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border border-white/5 bg-slate-800/40 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all duration-300";
+                autopilotIcon.className = "fa-solid fa-user-gear";
+                autopilotLabel.textContent = "Autopilot Disabled";
+            }
+        }
+
+        function toggleSetting(key) {
+            const newValue = !systemSettings[key];
+            const payload = {};
+            payload[key] = newValue;
+
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => {
+                if (res.ok) {
+                    systemSettings[key] = newValue;
+                    updateSettingsUI();
+                } else {
+                    alert('Failed to update setting.');
+                }
+            })
+            .catch(err => console.error('Failed to toggle setting:', err));
+        }
+
+        // Call on load
+        loadSettings();
 
         // Auto reload page every 15s to fetch status changes (only if search/filter is inactive)
         setInterval(() => {
