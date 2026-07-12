@@ -24,7 +24,8 @@ Some random debug warnings...
 ```json
 {
   "root_cause": "Database connection string had a typo.",
-  "proposed_fix": "docker restart postgres-db"
+  "proposed_fix": "docker restart postgres-db",
+  "category": "database"
 }
 ```
 Footnotes here.
@@ -45,6 +46,7 @@ Footnotes here.
         assert updated_incident.status == "PENDING_USER"
         assert updated_incident.root_cause == "Database connection string had a typo."
         assert updated_incident.proposed_fix == "docker restart postgres-db"
+        assert updated_incident.category == "database"
         
         # Verify notification was triggered
         mock_notify.assert_called_once_with("test-incident-uuid")
