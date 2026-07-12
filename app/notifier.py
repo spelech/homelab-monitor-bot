@@ -28,15 +28,14 @@ WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN")
 if not WEBHOOK_TOKEN:
     raise ValueError("WEBHOOK_TOKEN environment variable must be set!")
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
 def send_telegram_notification(title: str, body: str, incident_id: str = None):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
         logger.info("Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured.")
         return
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     
     # Escape HTML to prevent parsing issues
     escaped_title = html.escape(title)
@@ -45,7 +44,7 @@ def send_telegram_notification(title: str, body: str, incident_id: str = None):
     text = f"<b>{escaped_title}</b>\n\n{escaped_body}"
     
     payload = {
-        "chat_id": int(TELEGRAM_CHAT_ID),
+        "chat_id": int(chat_id),
         "text": text,
         "parse_mode": "HTML"
     }
