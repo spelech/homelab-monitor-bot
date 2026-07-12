@@ -12,7 +12,9 @@ load_dotenv()
 
 logger = logging.getLogger("Investigator")
 
+AI_EXECUTOR = os.getenv("AI_EXECUTOR", "agy").lower()
 AGY_PATH = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
+OPENCODE_PATH = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.17.0/bin/opencode")
 
 def trigger_investigation(incident_id: str):
     db: Session = SessionLocal()
@@ -54,24 +56,30 @@ def trigger_investigation(incident_id: str):
             "Do not include markdown formatting or backticks."
         )
 
-        # 4. Run agy subprocess
-        logger.info(f"Calling agy CLI at {AGY_PATH} for incident {incident_id}...")
+        # 4. Run AI executor subprocess
+        if AI_EXECUTOR == "opencode":
+            logger.info(f"Calling opencode CLI at {OPENCODE_PATH} for incident {incident_id}...")
+            cmd = [OPENCODE_PATH, "run", "--auto", prompt]
+        else:
+            logger.info(f"Calling agy CLI at {AGY_PATH} for incident {incident_id}...")
+            cmd = [AGY_PATH, "--print", "--dangerously-skip-permissions", prompt]
+
         result = subprocess.run(
-            [AGY_PATH, "--print", prompt],
+            cmd,
             capture_output=True,
             text=True,
             timeout=180  # 3 minutes timeout
         )
 
         if result.returncode != 0:
-            logger.error(f"agy execution failed: {result.stderr}")
+            logger.error(f"{AI_EXECUTOR} execution failed: {result.stderr}")
             incident.status = "FAILED"
-            incident.execution_log = f"agy error: {result.stderr}"
+            incident.execution_log = f"{AI_EXECUTOR} error: {result.stderr}"
             db.commit()
             return
 
         output = result.stdout
-        logger.info(f"Received output from agy: {output}")
+        logger.info(f"Received output from {AI_EXECUTOR}: {output}")
 
         # 5. Parse and scrub JSON
         try:
