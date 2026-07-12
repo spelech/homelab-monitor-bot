@@ -6,6 +6,7 @@ from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 logger = logging.getLogger("QdrantMemory")
 
 # Create local Qdrant data directory
+QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_PATH = "/containers/monitorbot/qdrant_data"
 os.makedirs(QDRANT_PATH, exist_ok=True)
 
@@ -14,8 +15,12 @@ class QdrantMemory:
         self.client = None
         self.collection_name = "resolved_incidents"
         try:
-            # Initialize local Qdrant Client (SQLite-like file storage)
-            self.client = QdrantClient(path=QDRANT_PATH)
+            if QDRANT_URL:
+                self.client = QdrantClient(url=QDRANT_URL)
+                logger.info(f"Connecting to Qdrant container at: {QDRANT_URL}")
+            else:
+                self.client = QdrantClient(path=QDRANT_PATH)
+                logger.info(f"Using local file Qdrant storage at: {QDRANT_PATH}")
             # Check if collection exists, if not, create it
             if not self.client.collection_exists(self.collection_name):
                 # Using add() automatically configures the vector size and model
@@ -88,5 +93,21 @@ class QdrantMemory:
         except Exception as e:
             logger.error(f"Error querying Qdrant: {e}")
             return None
+
+    def semantic_search(self, query_text: str, limit: int = 5):
+        if not self.client:
+            return []
+        try:
+            if not self.client.collection_exists(self.collection_name):
+                return []
+            results = self.client.query(
+                collection_name=self.collection_name,
+                query_text=query_text,
+                limit=limit
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Error doing semantic search in Qdrant: {e}")
+            return []
 
 qdrant_mem = QdrantMemory()
