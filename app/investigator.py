@@ -1,0 +1,121 @@
+import os
+import re
+import json
+import logging
+import subprocess
+from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+from app.database import SessionLocal, Incident
+from app.qdrant_mem import qdrant_mem
+
+load_dotenv()
+
+logger = logging.getLogger("Investigator")
+
+AGY_PATH = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
+
+def trigger_investigation(incident_id: str):
+    db: Session = SessionLocal()
+    try:
+        incident = db.query(Incident).filter(Incident.id == incident_id).first()
+        if not incident:
+            logger.error(f"Incident {incident_id} not found in database.")
+            return
+
+        # 1. Update status to INVESTIGATING
+        incident.status = "INVESTIGATING"
+        db.commit()
+        logger.info(f"Updated incident {incident_id} status to INVESTIGATING")
+
+        # 2. Query Qdrant for similar historical fixes
+        historical_context = ""
+        try:
+            match = qdrant_mem.query_similar_fix(incident.target_id, incident.error_logs)
+            if match:
+                payload = match.metadata
+                successful_command = payload.get("successful_command")
+                if successful_command:
+                    historical_context = (
+                        f"\n\nHistorical context: In the past, a similar issue on this container "
+                        f"was successfully fixed using this command: {successful_command}. "
+                        f"Take this into consideration when proposing your fix."
+                    )
+                    logger.info(f"Injecting historical fix context for target '{incident.target_id}'")
+        except Exception as q_err:
+            logger.error(f"Error querying Qdrant memory: {q_err}")
+
+        # 3. Construct prompt for agy
+        prompt = (
+            f"Container failure detected on '{incident.target_id}'.\n"
+            f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
+            "Output ONLY valid JSON with exactly two keys: "
+            "'root_cause' (a string explaining the issue) and "
+            "'proposed_fix' (a string containing valid bash commands to fix it). "
+            "Do not include markdown formatting or backticks."
+        )
+
+        # 4. Run agy subprocess
+        logger.info(f"Calling agy CLI at {AGY_PATH} for incident {incident_id}...")
+        result = subprocess.run(
+            [AGY_PATH, "--print", prompt],
+            capture_output=True,
+            text=True,
+            timeout=180  # 3 minutes timeout
+        )
+
+        if result.returncode != 0:
+            logger.error(f"agy execution failed: {result.stderr}")
+            incident.status = "FAILED"
+            incident.execution_log = f"agy error: {result.stderr}"
+            db.commit()
+            return
+
+        output = result.stdout
+        logger.info(f"Received output from agy: {output}")
+
+        # 5. Parse and scrub JSON
+        try:
+            # Regex to match JSON block
+            json_match = re.search(r"\{.*\}", output, re.DOTALL)
+            if not json_match:
+                raise ValueError("No JSON block found in output")
+
+            clean_json_str = json_match.group(0)
+            data = json.loads(clean_json_str)
+
+            root_cause = data.get("root_cause")
+            proposed_fix = data.get("proposed_fix")
+
+            if not root_cause or not proposed_fix:
+                raise ValueError("Missing 'root_cause' or 'proposed_fix' in JSON")
+
+            # 6. Save findings to database
+            incident.root_cause = root_cause
+            incident.proposed_fix = proposed_fix
+            incident.status = "PENDING_USER"
+            db.commit()
+            logger.info(f"Successfully processed investigation for incident {incident_id}")
+
+            # 7. Trigger Phase 3 (Notification)
+            from app.notifier import send_incident_notification
+            send_incident_notification(incident_id)
+
+        except Exception as parse_err:
+            logger.error(f"Failed to parse agy output for incident {incident_id}: {parse_err}")
+            incident.status = "FAILED"
+            incident.execution_log = f"Parsing error: {parse_err}\nRaw output: {output}"
+            db.commit()
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"agy execution timed out for incident {incident_id}")
+        incident.status = "FAILED"
+        incident.execution_log = "agy execution timed out"
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error in trigger_investigation for {incident_id}: {e}")
+        if 'incident' in locals() and incident:
+            incident.status = "FAILED"
+            incident.execution_log = f"Error: {e}"
+            db.commit()
+    finally:
+        db.close()

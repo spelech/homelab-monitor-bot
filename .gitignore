@@ -1,0 +1,6 @@
+.env
+monitorbot.db
+qdrant_data/
+venv/
+__pycache__/
+*.pyc

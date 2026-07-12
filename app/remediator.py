@@ -1,0 +1,138 @@
+import time
+import logging
+import subprocess
+import docker
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, Incident
+from app.notifier import send_followup_notification
+from app.qdrant_mem import qdrant_mem
+
+logger = logging.getLogger("Remediator")
+
+def run_remediation(incident_id: str):
+    db: Session = SessionLocal()
+    try:
+        incident = db.query(Incident).filter(Incident.id == incident_id).first()
+        if not incident:
+            logger.error(f"Incident {incident_id} not found when starting remediation.")
+            return
+
+        target_id = incident.target_id
+        proposed_fix = incident.proposed_fix
+        root_cause = incident.root_cause
+
+        logger.info(f"Starting remediation for incident {incident_id} (target: {target_id})...")
+
+        # 1. Update status to FIXING
+        incident.status = "FIXING"
+        db.commit()
+
+        # 2. Execute proposed fix bash commands
+        logger.info(f"Executing bash command: {proposed_fix}")
+        result = subprocess.run(
+            proposed_fix,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        stdout = result.stdout
+        stderr = result.stderr
+        exit_code = result.returncode
+
+        logger.info(f"Proposed fix execution complete. Exit code: {exit_code}")
+        logger.info(f"Stdout: {stdout}")
+        logger.info(f"Stderr: {stderr}")
+
+        # Save outputs to execution log
+        execution_log = (
+            f"--- Command executed ---\n{proposed_fix}\n\n"
+            f"--- Exit Code ---\n{exit_code}\n\n"
+            f"--- Stdout ---\n{stdout}\n\n"
+            f"--- Stderr ---\n{stderr}"
+        )
+        incident.execution_log = execution_log
+        db.commit()
+
+        # 3. Wait 10 seconds for container state to stabilize
+        logger.info("Waiting 10 seconds for container to stabilize...")
+        time.sleep(10)
+
+        # 4. Verify container status using Docker SDK
+        is_healthy = False
+        status_detail = ""
+        try:
+            client = docker.from_env()
+            container = client.containers.get(target_id)
+            state = container.attrs.get("State", {})
+            running = state.get("Running", False)
+            health = state.get("Health", {}).get("Status", "none")
+
+            if running:
+                if health == "none" or health == "healthy":
+                    is_healthy = True
+                    status_detail = f"running (health: {health})"
+                else:
+                    status_detail = f"running but health status is '{health}'"
+            else:
+                status_detail = f"not running (status: {state.get('Status')})"
+        except Exception as doc_err:
+            status_detail = f"failed to check container state via Docker SDK: {doc_err}"
+            logger.error(status_detail)
+
+        # 5. Handle success/failure state update & notifications
+        if is_healthy:
+            logger.info(f"Target '{target_id}' verified healthy ({status_detail}). Marking RESOLVED.")
+            incident.status = "RESOLVED"
+            db.commit()
+
+            # Learn successful resolution in Qdrant (Phase 6)
+            try:
+                qdrant_mem.learn_incident(incident_id, target_id, root_cause, proposed_fix)
+            except Exception as q_err:
+                logger.error(f"Failed to save incident to Qdrant memory: {q_err}")
+
+            # Send success notification
+            msg = (
+                f"Container '{target_id}' has been successfully resolved.\n\n"
+                f"Status: {status_detail}\n\n"
+                f"Command output:\n{stdout}"
+            )
+            send_followup_notification(incident_id, msg, success=True)
+        else:
+            logger.error(f"Target '{target_id}' verification failed: {status_detail}. Marking FAILED.")
+            incident.status = "FAILED"
+            db.commit()
+
+            # Send failure notification
+            msg = (
+                f"Failed to resolve issue on container '{target_id}'. Container is {status_detail}.\n\n"
+                f"Exit Code: {exit_code}\n"
+                f"Stderr:\n{stderr}"
+            )
+            send_followup_notification(incident_id, msg, success=False)
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Remediation timed out for incident {incident_id}")
+        incident.status = "FAILED"
+        incident.execution_log = f"Remediation timed out.\nProposed fix:\n{proposed_fix}"
+        db.commit()
+        send_followup_notification(
+            incident_id,
+            f"Remediation execution timed out for container '{target_id}'.",
+            success=False
+        )
+    except Exception as e:
+        logger.error(f"Error in run_remediation for {incident_id}: {e}")
+        if 'incident' in locals() and incident:
+            incident.status = "FAILED"
+            incident.execution_log = f"Remediation error: {e}"
+            db.commit()
+            send_followup_notification(
+                incident_id,
+                f"Error executing remediation for container '{target_id}': {e}",
+                success=False
+            )
+    finally:
+        db.close()
