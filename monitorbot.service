@@ -1,6 +1,7 @@
 [Unit]
 Description=AutoHeal SRE MonitorBot
 After=network.target docker.service
+Requires=docker.service
 
 [Service]
 Type=simple
