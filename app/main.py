@@ -211,6 +211,27 @@ def search_incidents(q: str = Query(...), db: Session = Depends(get_db)):
         })
     return results
 
+class SettingsUpdate(BaseModel):
+    silent_mode: bool | None = None
+    autopilot: bool | None = None
+
+@app.get("/api/settings")
+def get_system_settings():
+    from app.database import get_setting
+    return {
+        "silent_mode": get_setting("silent_mode") == "true",
+        "autopilot": get_setting("autopilot") == "true"
+    }
+
+@app.post("/api/settings")
+def update_system_settings(settings: SettingsUpdate):
+    from app.database import set_setting
+    if settings.silent_mode is not None:
+        set_setting("silent_mode", "true" if settings.silent_mode else "false")
+    if settings.autopilot is not None:
+        set_setting("autopilot", "true" if settings.autopilot else "false")
+    return {"status": "success"}
+
 # ----------------------------------------------------
 # MCP SERVER INTEGRATION
 # ----------------------------------------------------

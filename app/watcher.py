@@ -117,6 +117,12 @@ def process_failure(docker_client, container_name: str, container_id: str, reaso
         db.commit()
         logger.info(f"Created new incident {incident_id} for target '{container_name}'")
 
+        # Check silent mode setting
+        from app.database import get_setting
+        if get_setting("silent_mode") == "true":
+            logger.info("Silent mode is enabled. Skipping investigation and notifications.")
+            return
+
         # 6. Trigger Phase 2 Investigation in a background thread
         threading.Thread(target=trigger_investigation, args=(incident_id,), daemon=True).start()
 

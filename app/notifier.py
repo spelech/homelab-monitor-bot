@@ -88,33 +88,43 @@ def send_incident_notification(incident_id: str):
         target_id = incident.target_id
         root_cause = incident.root_cause
         proposed_fix = incident.proposed_fix
+        is_autopilot = (incident.status == "FIXING")
 
-        title = f"🚨 AutoHeal Incident: {target_id} failure"
-        message_body = (
-            f"Container '{target_id}' has failed.\n\n"
-            f"🔍 Root Cause:\n{root_cause}\n\n"
-            f"🛠️ Proposed Fix:\n{proposed_fix}"
-        )
+        if is_autopilot:
+            title = f"🤖 AutoHeal Autopilot: Resolving {target_id}"
+            message_body = (
+                f"Container '{target_id}' has failed.\n\n"
+                f"🔍 Root Cause:\n{root_cause}\n\n"
+                f"🛠️ Proposed Fix:\n{proposed_fix}\n\n"
+                f"⚡ Autopilot active: Executing fix immediately..."
+            )
+            actions_str = ""
+        else:
+            title = f"🚨 AutoHeal Incident: {target_id} failure"
+            message_body = (
+                f"Container '{target_id}' has failed.\n\n"
+                f"🔍 Root Cause:\n{root_cause}\n\n"
+                f"🛠️ Proposed Fix:\n{proposed_fix}"
+            )
+            webhook_url = f"{webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
+            # Construct Action Buttons Header
+            # ntfy supports: http, Label, URL, method=POST, body=JSON
+            actions_str = (
+                f"http, Fix Now, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
+                f"http, Defer 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
+                f"http, Ignore 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
+            )
 
         # Always try to send to Telegram as well if configured
         send_telegram_notification(title, message_body, incident_id)
 
-        webhook_url = f"{webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
-
-        # Construct Action Buttons Header
-        # ntfy supports: http, Label, URL, method=POST, body=JSON
-        actions_str = (
-            f"http, Fix Now, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
-            f"http, Defer 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
-            f"http, Ignore 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
-        )
-
         headers = {
             "Title": safe_header(title),
             "Priority": "high",
-            "Tags": "rotating_light,robot",
-            "Actions": actions_str
+            "Tags": "robot,zap" if is_autopilot else "rotating_light,computer",
         }
+        if actions_str:
+            headers["Actions"] = actions_str
 
         auth = get_auth_header()
         if auth:
@@ -130,7 +140,6 @@ def send_incident_notification(incident_id: str):
                 return
             else:
                 logger.error(f"Failed to send notification. Status: {resp.status_code}, Body: {resp.text}")
-                # Fall through to fallback
         except Exception as conn_err:
             logger.warning(f"Failed to connect to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
 
@@ -139,20 +148,21 @@ def send_incident_notification(incident_id: str):
         local_webhook_base_url = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://localhost:9013").rstrip("/")
         
         local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
-        local_webhook_url = f"{local_webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
-        
-        local_actions_str = (
-            f"http, Fix Now (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
-            f"http, Defer 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
-            f"http, Ignore 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
-        )
         
         fallback_headers = {
             "Title": safe_header(f"{title} (Local Fallback)"),
             "Priority": "high",
-            "Tags": "rotating_light,robot",
-            "Actions": local_actions_str
+            "Tags": "robot,zap" if is_autopilot else "rotating_light,computer",
         }
+        if not is_autopilot:
+            local_webhook_url = f"{local_webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
+            local_actions_str = (
+                f"http, Fix Now (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
+                f"http, Defer 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
+                f"http, Ignore 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
+            )
+            fallback_headers["Actions"] = local_actions_str
+
         if auth:
             fallback_headers["Authorization"] = auth
             

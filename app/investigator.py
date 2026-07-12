@@ -103,13 +103,32 @@ def trigger_investigation(incident_id: str):
             incident.root_cause = root_cause
             incident.proposed_fix = proposed_fix
             incident.category = str(category).lower()
-            incident.status = "PENDING_USER"
-            db.commit()
-            logger.info(f"Successfully processed investigation for incident {incident_id}")
 
-            # 7. Trigger Phase 3 (Notification)
-            from app.notifier import send_incident_notification
-            send_incident_notification(incident_id)
+            # Check autopilot mode
+            from app.database import get_setting
+            autopilot_enabled = (get_setting("autopilot") == "true")
+
+            if autopilot_enabled:
+                incident.status = "FIXING"
+                db.commit()
+                logger.info(f"Autopilot enabled. Automatically executing fix for incident {incident_id}")
+
+                # Send notification indicating autopilot is running the fix
+                from app.notifier import send_incident_notification
+                send_incident_notification(incident_id)
+
+                # Trigger remediation in the background
+                from app.remediator import run_remediation
+                import threading
+                threading.Thread(target=run_remediation, args=(incident_id,), daemon=True).start()
+            else:
+                incident.status = "PENDING_USER"
+                db.commit()
+                logger.info(f"Successfully processed investigation for incident {incident_id}. Awaiting user approval.")
+
+                # Send notification awaiting user approval
+                from app.notifier import send_incident_notification
+                send_incident_notification(incident_id)
 
         except Exception as parse_err:
             logger.error(f"Failed to parse agy output for incident {incident_id}: {parse_err}")

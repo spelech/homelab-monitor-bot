@@ -34,6 +34,12 @@ class Incident(Base):
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=False)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     # Perform a lightweight schema migration to add new columns if they do not exist
@@ -44,6 +50,47 @@ def init_db():
             conn.execute(text("ALTER TABLE incidents ADD COLUMN category VARCHAR;"))
         if 'completed_at' not in columns:
             conn.execute(text("ALTER TABLE incidents ADD COLUMN completed_at DATETIME;"))
+
+    # Seed default system settings
+    db = SessionLocal()
+    try:
+        if not db.query(SystemSetting).filter(SystemSetting.key == "silent_mode").first():
+            db.add(SystemSetting(key="silent_mode", value="false"))
+        if not db.query(SystemSetting).filter(SystemSetting.key == "autopilot").first():
+            db.add(SystemSetting(key="autopilot", value="false"))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+def get_setting(key: str, default: str = "false") -> str:
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if setting:
+            return setting.value
+        return default
+    except Exception:
+        return default
+    finally:
+        db.close()
+
+def set_setting(key: str, value: str):
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if not setting:
+            setting = SystemSetting(key=key, value=value)
+            db.add(setting)
+        else:
+            setting.value = value
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
 
 def get_db():
     db = SessionLocal()
