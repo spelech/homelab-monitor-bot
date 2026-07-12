@@ -21,7 +21,9 @@ logging.basicConfig(
 logger = logging.getLogger("AutoHeal")
 
 # Load environment configs
-WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "topfire89_monitorbot_secret_token")
+WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN")
+if not WEBHOOK_TOKEN:
+    raise ValueError("WEBHOOK_TOKEN environment variable must be set!")
 PORT = int(os.getenv("PORT", "9013"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
@@ -39,6 +41,10 @@ async def lifespan(app: FastAPI):
     
     logger.info("Starting background APScheduler...")
     start_scheduler()
+    
+    logger.info("Starting Telegram updates listener...")
+    from app.telegram_bot import start_telegram_listener
+    start_telegram_listener()
     
     yield
     # Shutdown actions (if any)
