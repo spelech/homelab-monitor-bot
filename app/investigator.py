@@ -50,9 +50,10 @@ def trigger_investigation(incident_id: str):
         prompt = (
             f"Container failure detected on '{incident.target_id}'.\n"
             f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
-            "Output ONLY valid JSON with exactly two keys: "
-            "'root_cause' (a string explaining the issue) and "
-            "'proposed_fix' (a string containing valid bash commands to fix it). "
+            "Output ONLY valid JSON with exactly three keys: "
+            "'root_cause' (a string explaining the issue), "
+            "'proposed_fix' (a string containing valid bash commands to fix it), and "
+            "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
             "Do not include markdown formatting or backticks."
         )
 
@@ -93,6 +94,7 @@ def trigger_investigation(incident_id: str):
 
             root_cause = data.get("root_cause")
             proposed_fix = data.get("proposed_fix")
+            category = data.get("category", "unknown")
 
             if not root_cause or not proposed_fix:
                 raise ValueError("Missing 'root_cause' or 'proposed_fix' in JSON")
@@ -100,6 +102,7 @@ def trigger_investigation(incident_id: str):
             # 6. Save findings to database
             incident.root_cause = root_cause
             incident.proposed_fix = proposed_fix
+            incident.category = str(category).lower()
             incident.status = "PENDING_USER"
             db.commit()
             logger.info(f"Successfully processed investigation for incident {incident_id}")
