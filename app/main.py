@@ -69,10 +69,6 @@ async def lifespan(app: FastAPI):
     logger.info("Starting background APScheduler...")
     start_scheduler()
     
-    logger.info("Starting configuration file watcher...")
-    from app.fswatcher import start_fswatcher_thread
-    start_fswatcher_thread()
-    
     logger.info("Starting Telegram updates listener...")
     from app.telegram_bot import start_telegram_listener
     start_telegram_listener()
