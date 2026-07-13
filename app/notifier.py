@@ -242,3 +242,59 @@ def send_followup_notification(incident_id: str, message: str, success: bool):
         logger.error(f"Error sending follow-up notification: {e}")
     finally:
         db.close()
+
+
+def send_heartbeat_notification():
+    ntfy_url = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com").rstrip("/")
+    ntfy_topic = os.getenv("NTFY_TOPIC", "alerts")
+    
+    title = "💚 AutoHeal Heartbeat"
+    message = "AutoHeal SRE MonitorBot is online, running health checks, and active."
+    
+    # Always try to send to Telegram as well if configured
+    send_telegram_notification(title, message, None)
+
+    headers = {
+        "Title": safe_header(title),
+        "Priority": "low",
+        "Tags": "green_heart,nut_and_bolt"
+    }
+
+    auth = get_auth_header()
+    if auth:
+        headers["Authorization"] = auth
+
+    url = f"{ntfy_url}/{ntfy_topic}"
+    logger.info(f"Sending heartbeat notification to {url}...")
+    
+    try:
+        resp = requests.post(url, data=message.encode("utf-8"), headers=headers, timeout=10)
+        if resp.status_code == 200:
+            logger.info("Heartbeat notification sent successfully.")
+            return
+        else:
+            logger.error(f"Failed to send heartbeat. Status: {resp.status_code}, Body: {resp.text}")
+    except Exception as conn_err:
+        logger.warning(f"Failed to send heartbeat to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
+
+    # Fallback to local URL
+    ntfy_fallback_url = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
+    local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
+    fallback_headers = {
+        "Title": safe_header(f"{title} (Local Fallback)"),
+        "Priority": "low",
+        "Tags": "green_heart,nut_and_bolt"
+    }
+    if auth:
+        fallback_headers["Authorization"] = auth
+
+    logger.info(f"Sending fallback heartbeat notification to {local_ntfy_url}...")
+    try:
+        fallback_resp = requests.post(local_ntfy_url, data=message.encode("utf-8"), headers=fallback_headers, timeout=10)
+        if fallback_resp.status_code == 200:
+            logger.info("Fallback heartbeat notification sent successfully.")
+        else:
+            logger.error(f"Failed to send fallback heartbeat. Status: {fallback_resp.status_code}, Body: {fallback_resp.text}")
+    except Exception as e:
+        logger.error(f"Error sending fallback heartbeat: {e}")
+

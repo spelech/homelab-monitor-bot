@@ -42,9 +42,28 @@ def check_deferred_and_ignored():
     finally:
         db.close()
 
+def trigger_heartbeat():
+    logger.info("Triggering scheduled heartbeat notification.")
+    try:
+        from app.notifier import send_heartbeat_notification
+        send_heartbeat_notification()
+    except Exception as e:
+        logger.error(f"Failed to send heartbeat notification: {e}")
+
 def start_scheduler():
+    import os
+    from datetime import datetime, timedelta
     scheduler = BackgroundScheduler()
     # Run check every 60 seconds
     scheduler.add_job(check_deferred_and_ignored, "interval", seconds=60)
+    
+    # Run heartbeat periodically
+    heartbeat_hours = int(os.getenv("HEARTBEAT_INTERVAL_HOURS", "24"))
+    scheduler.add_job(trigger_heartbeat, "interval", hours=heartbeat_hours)
+    
+    # Trigger an initial heartbeat 5 seconds after startup
+    startup_time = datetime.now() + timedelta(seconds=5)
+    scheduler.add_job(trigger_heartbeat, "date", run_date=startup_time)
+    
     scheduler.start()
-    logger.info("Background Scheduler started (checking every 60s).")
+    logger.info(f"Background Scheduler started (checking every 60s, heartbeat every {heartbeat_hours}h).")

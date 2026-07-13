@@ -98,3 +98,26 @@ def test_send_telegram_invoked(db_session):
             # Check that Telegram API endpoint was one of the calls
             urls = [call[0][0] for call in mock_requests_post.call_args_list]
             assert "https://api.telegram.org/bot123456:mock_token/sendMessage" in urls
+
+
+def test_send_heartbeat_notification():
+    from app.notifier import send_heartbeat_notification
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        with patch.dict(os.environ, {
+            "NTFY_URL": "https://ntfy.wileyriley.com",
+            "NTFY_TOPIC": "alerts",
+            "TELEGRAM_BOT_TOKEN": "12345:token",
+            "TELEGRAM_CHAT_ID": "67890"
+        }):
+            send_heartbeat_notification()
+            
+            # Should call Telegram and then ntfy
+            assert mock_post.call_count == 2
+            urls = [call[0][0] for call in mock_post.call_args_list]
+            assert "https://api.telegram.org/bot12345:token/sendMessage" in urls
+            assert "https://ntfy.wileyriley.com/alerts" in urls
+
