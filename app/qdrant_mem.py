@@ -110,4 +110,21 @@ class QdrantMemory:
             logger.error(f"Error doing semantic search in Qdrant: {e}")
             return []
 
+    def list_memories(self, limit: int = 100):
+        if not self.client:
+            return []
+        try:
+            if not self.client.collection_exists(self.collection_name):
+                return []
+            results, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Error listing memories in Qdrant: {e}")
+            return []
+
 qdrant_mem = QdrantMemory()

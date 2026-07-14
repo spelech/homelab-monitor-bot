@@ -65,7 +65,7 @@ def trigger_investigation(incident_id: str):
             cmd = [OPENCODE_PATH, "run", "--auto", prompt]
         else:
             logger.info(f"Calling agy CLI at {AGY_PATH} for incident {incident_id}...")
-            cmd = [AGY_PATH, "--print", "--dangerously-skip-permissions", prompt]
+            cmd = [AGY_PATH, "--dangerously-skip-permissions", "--print", prompt]
 
         result = subprocess.run(
             cmd,
