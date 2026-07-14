@@ -18,6 +18,10 @@ def print_help():
     print("  python3 cli.py autopilot [on/off]   - Enable or disable autopilot mode (auto-execute fixes)")
     print("  python3 cli.py test-prompt --target <id> --error <log_or_file> [--history <cmd>]")
     print("                                      - Test SRE prompts against agy live and validate output")
+    print("  python3 cli.py memory search <query> - Semantic search for past fixes in Qdrant")
+    print("  python3 cli.py memory learn --target <id> --cause <text> --fix <cmd> [--id <uuid>]")
+    print("                                      - Manually add a successful fix to Qdrant memory")
+    print("  python3 cli.py memory list          - List all learned issues and commands in Qdrant")
     print("  python3 cli.py help                 - Show this help message")
 
 def main():
@@ -117,7 +121,7 @@ def main():
         
         try:
             result = subprocess.run(
-                [AGY_PATH, "--print", "--dangerously-skip-permissions", prompt],
+                [AGY_PATH, "--dangerously-skip-permissions", "--print", prompt],
                 capture_output=True,
                 text=True,
                 timeout=180
@@ -159,6 +163,69 @@ def main():
             sys.exit(1)
         except Exception as run_err:
             print(f"\n❌ ERROR: Failed to run agy: {run_err}")
+            sys.exit(1)
+    elif cmd == "memory":
+        if len(sys.argv) < 3:
+            print("Error: Specify a memory subcommand: 'search', 'learn', or 'list'")
+            sys.exit(1)
+            
+        subcmd = sys.argv[2].lower()
+        from app.qdrant_mem import qdrant_mem
+        
+        if subcmd == "list":
+            memories = qdrant_mem.list_memories()
+            if not memories:
+                print("No memories stored in Qdrant yet.")
+            else:
+                print(f"\n--- Learned Memories in Qdrant ({len(memories)} total) ---")
+                for point in memories:
+                    payload = point.payload or {}
+                    print(f"\nID:       {point.id}")
+                    print(f"Target:   {payload.get('target_id')} ({payload.get('target_type')})")
+                    print(f"Fix Cmd:  {payload.get('successful_command')}")
+                print("\n" + "-"*50)
+                
+        elif subcmd == "search":
+            if len(sys.argv) < 4:
+                print("Error: Provide a query string. e.g. python3 cli.py memory search \"port collision\"")
+                sys.exit(1)
+            query_text = " ".join(sys.argv[3:])
+            results = qdrant_mem.semantic_search(query_text)
+            if not results:
+                print(f"No match found for: '{query_text}'")
+            else:
+                print(f"\n--- Semantic Search Results for: '{query_text}' ---")
+                for match in results:
+                    metadata = match.metadata or {}
+                    print(f"\nScore:    {match.score:.4f}")
+                    print(f"Target:   {metadata.get('target_id')}")
+                    print(f"Fix Cmd:  {metadata.get('successful_command')}")
+                print("\n" + "-"*50)
+                
+        elif subcmd == "learn":
+            import argparse
+            parser = argparse.ArgumentParser(description="Manually teach Qdrant a successful fix")
+            parser.add_argument("--target", required=True, help="Target container/service name")
+            parser.add_argument("--cause", required=True, help="Root cause description")
+            parser.add_argument("--fix", required=True, help="Successful fix command")
+            parser.add_argument("--id", default=None, help="Optional UUID for the memory")
+            
+            args = parser.parse_args(sys.argv[3:])
+            import uuid
+            mem_id = args.id or str(uuid.uuid4())
+            
+            success = qdrant_mem.learn_incident(
+                incident_id=mem_id,
+                target_id=args.target,
+                root_cause=args.cause,
+                proposed_fix=args.fix
+            )
+            if success:
+                print(f"Successfully saved fix to memory! ID: {mem_id}")
+            else:
+                print("Error: Failed to save fix to Qdrant memory.")
+        else:
+            print(f"Unknown memory subcommand: {subcmd}")
             sys.exit(1)
     else:
         print(f"Unknown command: {cmd}")
