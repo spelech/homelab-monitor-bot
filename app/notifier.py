@@ -138,6 +138,8 @@ def send_incident_notification(incident_id: str):
             resp = requests.post(url, data=message_body.encode("utf-8"), headers=headers, timeout=10)
             if resp.status_code == 200:
                 logger.info(f"Notification sent successfully for incident {incident_id}")
+                incident.last_notified_at = datetime.utcnow()
+                db.commit()
                 return
             else:
                 logger.error(f"Failed to send notification. Status: {resp.status_code}, Body: {resp.text}")
@@ -171,6 +173,8 @@ def send_incident_notification(incident_id: str):
         fallback_resp = requests.post(local_ntfy_url, data=message_body.encode("utf-8"), headers=fallback_headers, timeout=10)
         if fallback_resp.status_code == 200:
             logger.info(f"Fallback notification sent successfully for incident {incident_id}")
+            incident.last_notified_at = datetime.utcnow()
+            db.commit()
         else:
             logger.error(f"Failed to send fallback notification. Status: {fallback_resp.status_code}, Body: {fallback_resp.text}")
 

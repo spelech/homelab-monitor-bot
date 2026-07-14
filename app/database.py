@@ -32,6 +32,7 @@ class Incident(Base):
     deferred_until = Column(DateTime, nullable=True)
     category = Column(String, nullable=True)  # network, reverse_proxy, permissions, settings, database, unknown
     completed_at = Column(DateTime, nullable=True)
+    last_notified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class SystemSetting(Base):
@@ -50,6 +51,8 @@ def init_db():
             conn.execute(text("ALTER TABLE incidents ADD COLUMN category VARCHAR;"))
         if 'completed_at' not in columns:
             conn.execute(text("ALTER TABLE incidents ADD COLUMN completed_at DATETIME;"))
+        if 'last_notified_at' not in columns:
+            conn.execute(text("ALTER TABLE incidents ADD COLUMN last_notified_at DATETIME;"))
 
     # Seed default system settings
     db = SessionLocal()

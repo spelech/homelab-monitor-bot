@@ -37,6 +37,19 @@ def check_deferred_and_ignored():
             target.ignored_until = None
             db.commit()
 
+        # 3. Query PENDING_USER incidents that haven't been notified/renotified in the last 1 hour
+        from datetime import timedelta
+        one_hour_ago = now - timedelta(hours=1)
+        unresponded_incidents = db.query(Incident).filter(
+            Incident.status == "PENDING_USER",
+            (Incident.last_notified_at < one_hour_ago) |
+            (Incident.last_notified_at.is_(None) & (Incident.created_at < one_hour_ago))
+        ).all()
+
+        for incident in unresponded_incidents:
+            logger.info(f"Incident {incident.id} for target '{incident.target_id}' remains unresponded for over 1 hour. Renotifying...")
+            send_incident_notification(incident.id)
+
     except Exception as e:
         logger.error(f"Error in scheduler check: {e}")
     finally:
