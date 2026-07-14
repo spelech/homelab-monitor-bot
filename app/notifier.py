@@ -118,9 +118,10 @@ def send_incident_notification(incident_id: str):
         # Always try to send to Telegram as well if configured
         send_telegram_notification(title, message_body, incident_id)
 
+        incident_priority = os.getenv("NOTIFICATION_PRIORITY", "max")
         headers = {
             "Title": safe_header(title),
-            "Priority": "high",
+            "Priority": incident_priority,
             "Tags": "robot,zap" if is_autopilot else "rotating_light,computer",
         }
         if actions_str:
@@ -151,7 +152,7 @@ def send_incident_notification(incident_id: str):
         
         fallback_headers = {
             "Title": safe_header(f"{title} (Local Fallback)"),
-            "Priority": "high",
+            "Priority": incident_priority,
             "Tags": "robot,zap" if is_autopilot else "rotating_light,computer",
         }
         if not is_autopilot:
@@ -178,6 +179,7 @@ def send_incident_notification(incident_id: str):
     finally:
         db.close()
 
+
 def send_followup_notification(incident_id: str, message: str, success: bool):
     ntfy_url = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com").rstrip("/")
     ntfy_topic = os.getenv("NTFY_TOPIC", "alerts")
@@ -196,9 +198,10 @@ def send_followup_notification(incident_id: str, message: str, success: bool):
         # Always try to send to Telegram as well if configured
         send_telegram_notification(title, message, None)
 
+        followup_priority = os.getenv("FOLLOWUP_NOTIFICATION_PRIORITY", "high")
         headers = {
             "Title": safe_header(title),
-            "Priority": "default",
+            "Priority": followup_priority,
             "Tags": tags
         }
 
@@ -225,7 +228,7 @@ def send_followup_notification(incident_id: str, message: str, success: bool):
         local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
         fallback_headers = {
             "Title": safe_header(f"{title} (Local Fallback)"),
-            "Priority": "default",
+            "Priority": followup_priority,
             "Tags": tags
         }
         if auth:
