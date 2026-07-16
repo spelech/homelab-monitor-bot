@@ -146,20 +146,28 @@ async def handle_webhook(
         logger.info(f"Incident {incident_id} already in status {incident.status}. Webhook ignored (duplicate hit).")
         return {"status": "ok", "detail": f"Already processed in state {incident.status}"}
 
-    # 3.5. Health Pre-Check: check if the container recovered on its own
+    # 3.5. Health Pre-Check: check if the target recovered on its own
     target_id = incident.target_id
     already_healthy = False
     chk_detail = ""
     try:
-        import docker
-        client = docker.from_env()
-        container = client.containers.get(target_id)
-        state = container.attrs.get("State", {})
-        running = state.get("Running", False)
-        health = state.get("Health", {}).get("Status", "none")
-        if running and (health == "none" or health == "healthy"):
-            already_healthy = True
-            chk_detail = f"running (health: {health})"
+        target = db.query(Target).filter(Target.id == target_id).first()
+        if target and target.type == "systemd":
+            import subprocess
+            res = subprocess.run(["systemctl", "is-active", "--quiet", target_id])
+            if res.returncode == 0:
+                already_healthy = True
+                chk_detail = "active (running)"
+        else:
+            import docker
+            client = docker.from_env()
+            container = client.containers.get(target_id)
+            state = container.attrs.get("State", {})
+            running = state.get("Running", False)
+            health = state.get("Health", {}).get("Status", "none")
+            if running and (health == "none" or health == "healthy"):
+                already_healthy = True
+                chk_detail = f"running (health: {health})"
     except Exception as check_err:
         logger.warning(f"Webhook health precheck failed for target '{target_id}': {check_err}")
 

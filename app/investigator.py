@@ -5,7 +5,7 @@ import logging
 import subprocess
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from app.database import SessionLocal, Incident
+from app.database import SessionLocal, Incident, Target
 from app.qdrant_mem import qdrant_mem
 
 load_dotenv()
@@ -29,6 +29,9 @@ def trigger_investigation(incident_id: str):
         db.commit()
         logger.info(f"Updated incident {incident_id} status to INVESTIGATING")
 
+        target = db.query(Target).filter(Target.id == incident.target_id).first()
+        is_systemd = (target and target.type == "systemd")
+
         # 2. Query Qdrant for similar historical fixes
         historical_context = ""
         try:
@@ -37,8 +40,9 @@ def trigger_investigation(incident_id: str):
                 payload = match.metadata
                 successful_command = payload.get("successful_command")
                 if successful_command:
+                    target_noun = "systemd service" if is_systemd else "container"
                     historical_context = (
-                        f"\n\nHistorical context: In the past, a similar issue on this container "
+                        f"\n\nHistorical context: In the past, a similar issue on this {target_noun} "
                         f"was successfully fixed using this command: {successful_command}. "
                         f"Take this into consideration when proposing your fix."
                     )
@@ -47,17 +51,30 @@ def trigger_investigation(incident_id: str):
             logger.error(f"Error querying Qdrant memory: {q_err}")
 
         # 3. Construct prompt for agy
-        prompt = (
-            f"Container failure detected on '{incident.target_id}'.\n"
-            f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
-            "You are an SRE bot. Focus strictly on diagnosing this container failure by inspecting its configuration, files, and Docker logs. "
-            "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
-            "Output ONLY valid JSON with exactly three keys: "
-            "'root_cause' (a string explaining the issue), "
-            "'proposed_fix' (a string containing valid bash commands to fix it), and "
-            "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
-            "Do not include markdown formatting or backticks."
-        )
+        if is_systemd:
+            prompt = (
+                f"Systemd service failure detected on '{incident.target_id}'.\n"
+                f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
+                "You are an SRE bot. Focus strictly on diagnosing this systemd service failure by inspecting its configuration, journalctl logs, and service status. "
+                "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
+                "Output ONLY valid JSON with exactly three keys: "
+                "'root_cause' (a string explaining the issue), "
+                "'proposed_fix' (a string containing valid bash commands to fix it), and "
+                "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
+                "Do not include markdown formatting or backticks."
+            )
+        else:
+            prompt = (
+                f"Container failure detected on '{incident.target_id}'.\n"
+                f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
+                "You are an SRE bot. Focus strictly on diagnosing this container failure by inspecting its configuration, files, and Docker logs. "
+                "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
+                "Output ONLY valid JSON with exactly three keys: "
+                "'root_cause' (a string explaining the issue), "
+                "'proposed_fix' (a string containing valid bash commands to fix it), and "
+                "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
+                "Do not include markdown formatting or backticks."
+            )
 
         # 4. Run AI executor subprocess
         if AI_EXECUTOR == "opencode":

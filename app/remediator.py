@@ -4,7 +4,7 @@ import subprocess
 import docker
 from datetime import datetime
 from sqlalchemy.orm import Session
-from app.database import SessionLocal, Incident
+from app.database import SessionLocal, Incident, Target
 from app.notifier import send_followup_notification
 from app.qdrant_mem import qdrant_mem
 
@@ -60,26 +60,35 @@ def run_remediation(incident_id: str):
         logger.info("Waiting 10 seconds for container to stabilize...")
         time.sleep(10)
 
-        # 4. Verify container status using Docker SDK
+        # 4. Verify status using either systemctl or Docker SDK
         is_healthy = False
         status_detail = ""
         try:
-            client = docker.from_env()
-            container = client.containers.get(target_id)
-            state = container.attrs.get("State", {})
-            running = state.get("Running", False)
-            health = state.get("Health", {}).get("Status", "none")
-
-            if running:
-                if health == "none" or health == "healthy":
+            target = db.query(Target).filter(Target.id == target_id).first()
+            if target and target.type == "systemd":
+                res = subprocess.run(["systemctl", "is-active", "--quiet", target_id])
+                if res.returncode == 0:
                     is_healthy = True
-                    status_detail = f"running (health: {health})"
+                    status_detail = "active (running)"
                 else:
-                    status_detail = f"running but health status is '{health}'"
+                    status_detail = "inactive/failed"
             else:
-                status_detail = f"not running (status: {state.get('Status')})"
-        except Exception as doc_err:
-            status_detail = f"failed to check container state via Docker SDK: {doc_err}"
+                client = docker.from_env()
+                container = client.containers.get(target_id)
+                state = container.attrs.get("State", {})
+                running = state.get("Running", False)
+                health = state.get("Health", {}).get("Status", "none")
+
+                if running:
+                    if health == "none" or health == "healthy":
+                        is_healthy = True
+                        status_detail = f"running (health: {health})"
+                    else:
+                        status_detail = f"running but health status is '{health}'"
+                else:
+                    status_detail = f"not running (status: {state.get('Status')})"
+        except Exception as check_err:
+            status_detail = f"failed to check target state: {check_err}"
             logger.error(status_detail)
 
         # 5. Handle success/failure state update & notifications

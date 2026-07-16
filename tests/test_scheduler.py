@@ -115,3 +115,54 @@ def test_renotify_handles_null_last_notified_at(db_session):
     with patch("app.scheduler.send_incident_notification") as mock_notify:
         check_deferred_and_ignored()
         mock_notify.assert_called_once_with("inc-renotify-003")
+
+@patch("os.getenv")
+@patch("subprocess.run")
+@patch("threading.Thread")
+def test_check_systemd_services_active(mock_thread, mock_run, mock_getenv, db_session):
+    mock_getenv.return_value = "plexmediaserver,ssh"
+    
+    # Mock systemctl is-active to return active (exit code 0)
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_run.return_value = mock_res
+
+    from app.scheduler import check_systemd_services
+    check_systemd_services()
+
+    # Verify no incidents created
+    incidents = db_session.query(Incident).all()
+    assert len(incidents) == 0
+
+@patch("os.getenv")
+@patch("subprocess.run")
+@patch("threading.Thread")
+def test_check_systemd_services_inactive(mock_thread, mock_run, mock_getenv, db_session):
+    mock_getenv.return_value = "plexmediaserver"
+    
+    # First mock run checks is-active (failed, exit code 1)
+    # Second mock run fetches logs
+    mock_res_active = MagicMock()
+    mock_res_active.returncode = 1
+    
+    mock_res_logs = MagicMock()
+    mock_res_logs.stdout = "plexmediaserver.service failed with exit code 1"
+    
+    mock_run.side_effect = [mock_res_active, mock_res_logs]
+
+    from app.scheduler import check_systemd_services
+    check_systemd_services()
+
+    # Verify target created as systemd
+    target = db_session.query(Target).filter_by(id="plexmediaserver").first()
+    assert target is not None
+    assert target.type == "systemd"
+
+    # Verify incident created
+    incident = db_session.query(Incident).filter_by(target_id="plexmediaserver").first()
+    assert incident is not None
+    assert incident.status == "DETECTED"
+    assert incident.error_logs == "plexmediaserver.service failed with exit code 1"
+
+    # Verify thread started trigger_investigation
+    mock_thread.assert_called_once()

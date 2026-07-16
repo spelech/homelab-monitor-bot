@@ -55,6 +55,70 @@ def check_deferred_and_ignored():
     finally:
         db.close()
 
+def check_systemd_services():
+    db: Session = SessionLocal()
+    try:
+        import os
+        import subprocess
+        import uuid
+        from app.database import Target, Incident
+        from app.investigator import trigger_investigation
+
+        services_str = os.getenv("MONITOR_SYSTEMD_SERVICES", "")
+        if not services_str:
+            return
+
+        services = [s.strip() for s in services_str.split(",") if s.strip()]
+        for service in services:
+            res = subprocess.run(["systemctl", "is-active", "--quiet", service])
+            if res.returncode != 0:
+                logger.warning(f"Systemd service '{service}' is inactive or failed.")
+
+                target = db.query(Target).filter(Target.id == service).first()
+                if not target:
+                    target = Target(id=service, type="systemd", ignored_until=None)
+                    db.add(target)
+                    db.commit()
+                    db.refresh(target)
+
+                if target.ignored_until and target.ignored_until > datetime.utcnow():
+                    continue
+
+                active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
+                active_inc = db.query(Incident).filter(
+                    Incident.target_id == service,
+                    Incident.status.in_(active_statuses)
+                ).first()
+                if active_inc:
+                    continue
+
+                log_res = subprocess.run(
+                    ["journalctl", "-u", service, "-n", "50", "--no-pager"],
+                    capture_output=True,
+                    text=True
+                )
+                error_logs = log_res.stdout or f"Failed to fetch logs for systemd service {service}."
+
+                incident_id = str(uuid.uuid4())
+                incident = Incident(
+                    id=incident_id,
+                    target_id=service,
+                    status="DETECTED",
+                    error_logs=error_logs,
+                    created_at=datetime.utcnow()
+                )
+                db.add(incident)
+                db.commit()
+
+                logger.info(f"Created systemd failure incident {incident_id} for service '{service}'. Triggering investigation...")
+                
+                import threading
+                threading.Thread(target=trigger_investigation, args=(incident_id,)).start()
+    except Exception as e:
+        logger.error(f"Error checking systemd services: {e}")
+    finally:
+        db.close()
+
 def trigger_heartbeat():
     logger.info("Triggering scheduled heartbeat notification.")
     try:
@@ -67,11 +131,12 @@ def start_scheduler():
     import os
     from datetime import datetime, timedelta
     scheduler = BackgroundScheduler()
-    # Run check every 60 seconds
+    # Run checks every 60 seconds
     scheduler.add_job(check_deferred_and_ignored, "interval", seconds=60)
+    scheduler.add_job(check_systemd_services, "interval", seconds=60)
     
     # Run heartbeat periodically
-    heartbeat_hours = int(os.getenv("HEARTBEAT_INTERVAL_HOURS", "24"))
+    heartbeat_hours = int(os.getenv("HEARTBEAT_INTERVAL_HOURS", "4"))
     scheduler.add_job(trigger_heartbeat, "interval", hours=heartbeat_hours)
     
     # Trigger an initial heartbeat 5 seconds after startup
