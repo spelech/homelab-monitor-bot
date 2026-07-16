@@ -5,10 +5,33 @@ AutoHeal is an event-driven Python application designed to run natively on a Lin
 ## Features
 
 - **Non-Polling Docker Monitor:** Listens to the Docker daemon event stream for container crashes (`die` events with non-zero exit codes) or container `health_status: unhealthy` events.
-- **Autonomous AI Investigator:** Invokes the local `agy` CLI in a subprocess to analyze container logs, identify the root cause, and propose a bash-script remediation command.
-- **Semantic Memory (RAG):** Integrates Qdrant vector database using `fastembed` to store successful incident resolutions and inject historical solutions as context if similar errors occur in the future.
+- **Systemd Host Service Monitoring:** Polls host services (like `plexmediaserver` or `ssh`) via `systemctl` periodically (configurable in `.env`) to detect failures outside container scopes.
+- **Autonomous AI Investigator:** Invokes the local `agy` CLI in a subprocess to dynamically analyze container logs or journalctl streams, identify root causes, and propose bash-script remediation commands.
+- **Loop Prevention (Circuit Breaker):** If a target fails $\ge 2$ times in a rolling 60-minute window, automatic fixes are blocked, and a critical alert is sent to prevent resource-exhausting restart loops.
+- **Command Safety Validation:** Scans proposed fixes against a blacklist to block destructive operations (recursive `rm`, volume prunes, host reboots) before execution under Autopilot.
+- **Dependency-Aware Remediation:** Queueing fixes behind failed dependencies (e.g. holding web app fixes until database container incidents are resolved first) to prevent cascade failures.
+- **Uptime Kuma Web Probes:** Verifies resolution health by polling target external URLs parsed from `kuma.<service>.http.url` container labels, falling back to process status checks.
+- **Semantic Memory (RAG):** Integrates Qdrant vector database using `fastembed` to store successful resolutions, enabling semantic retrieval of past decisions directly from the CLI or automated context injection.
+- **Heartbeat Status Checks:** Dispatches high-priority (DND-bypassing) heartbeats at startup and every 4 hours (default) to confirm SRE bot health.
 - **Interactive Push Alerts:** Delivers rich push notifications using `ntfy` with Action Buttons, allowing administrators to approve fixes, defer alerts, or ignore targets directly from their mobile devices or desktop.
 - **Web Dashboard:** Serves an interactive HTML dashboard built with FastAPI, SQLAlchemy (SQLite), and Tailwind CSS to track active incidents, view resolution histories, and manage target ignore/defer states.
+
+---
+
+## Semantic Memory CLI Commands
+
+You can interact with SRE Memory database using `cli.py`:
+
+```bash
+# List all successful fixes stored in the vector database
+python3 cli.py memory list
+
+# Search past incidents using semantic natural language
+python3 cli.py memory search "permission error on databases"
+
+# Manually teach the SRE bot a successful manual fix
+python3 cli.py memory learn --target postgres --cause "out of memory" --fix "docker restart postgres"
+```
 
 ---
 
