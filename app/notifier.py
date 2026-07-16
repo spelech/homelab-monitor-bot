@@ -99,6 +99,14 @@ def send_incident_notification(incident_id: str):
                 f"⚡ Autopilot active: Executing fix immediately..."
             )
             actions_str = ""
+        elif incident.status == "BLOCKED":
+            title = f"🛑 AutoHeal BLOCKED: {target_id} Circuit Breaker"
+            message_body = (
+                f"Target '{target_id}' has repeatedly failed.\n\n"
+                f"⚠️ Circuit breaker tripped due to excessive failures in the last 60 minutes.\n"
+                f"Automatic recovery has been paused for this target. Please triage manually."
+            )
+            actions_str = ""
         else:
             title = f"🚨 AutoHeal Incident: {target_id} failure"
             message_body = (
@@ -122,7 +130,7 @@ def send_incident_notification(incident_id: str):
         headers = {
             "Title": safe_header(title),
             "Priority": incident_priority,
-            "Tags": "robot,zap" if is_autopilot else "rotating_light,computer",
+            "Tags": "robot,zap" if is_autopilot else ("no_entry" if incident.status == "BLOCKED" else "rotating_light,computer"),
         }
         if actions_str:
             headers["Actions"] = actions_str

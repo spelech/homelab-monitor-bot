@@ -81,8 +81,8 @@ def process_failure(docker_client, container_name: str, container_id: str, reaso
             logger.info(f"Target '{container_name}' is ignored until {target.ignored_until}. Skipping incident creation.")
             return
 
-        # 3. Check if there is already an active incident (DETECTED, INVESTIGATING, PENDING_USER, FIXING) for this target
-        active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
+        # 3. Check if there is already an active incident (DETECTED, INVESTIGATING, PENDING_USER, FIXING, BLOCKED) for this target
+        active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING", "BLOCKED"]
         active_incident = db.query(Incident).filter(
             Incident.target_id == container_name,
             Incident.status.in_(active_statuses)
@@ -90,6 +90,34 @@ def process_failure(docker_client, container_name: str, container_id: str, reaso
 
         if active_incident:
             logger.info(f"Target '{container_name}' already has active incident {active_incident.id} ({active_incident.status}). Skipping.")
+            return
+
+        # 3.5. Circuit Breaker Check: Check for repeated failures in the last 60 minutes
+        from datetime import timedelta
+        one_hour_ago = datetime.utcnow() - timedelta(minutes=60)
+        recent_failures = db.query(Incident).filter(
+            Incident.target_id == container_name,
+            Incident.status == "FAILED",
+            Incident.completed_at >= one_hour_ago
+        ).count()
+
+        if recent_failures >= 2:
+            logger.warning(f"Circuit breaker tripped for target '{container_name}': {recent_failures} failures in the last 60 minutes.")
+            incident_id = str(uuid.uuid4())
+            new_incident = Incident(
+                id=incident_id,
+                target_id=container_name,
+                status="BLOCKED",
+                error_logs=f"Circuit breaker tripped: {recent_failures} failures in the last 60 minutes. Automatic recovery disabled.",
+                created_at=datetime.utcnow(),
+                completed_at=datetime.utcnow()
+            )
+            db.add(new_incident)
+            db.commit()
+            
+            # Send notification
+            from app.notifier import send_incident_notification
+            send_incident_notification(incident_id)
             return
 
         # 4. Fetch logs

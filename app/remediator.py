@@ -24,7 +24,47 @@ def run_remediation(incident_id: str):
 
         logger.info(f"Starting remediation for incident {incident_id} (target: {target_id})...")
 
-        # 1. Update status to FIXING
+        # 1.3. Dependency Check: check if any parent dependencies have active incidents
+        from app.dependencies import check_parent_incidents
+        active_parents = check_parent_incidents(target_id, db)
+        if active_parents:
+            parent_names = ", ".join([p.target_id for p in active_parents])
+            logger.info(f"Target '{target_id}' has unresolved parent dependencies: {parent_names}. Pausing remediation.")
+            incident.status = "PENDING_USER"
+            incident.execution_log = f"Remediation paused: Unresolved parent dependencies: {parent_names}."
+            db.commit()
+            return
+
+        # 1.5. Command Safety Validation
+        is_safe = True
+        violation = ""
+        blacklist = [
+            (r"\brm\s+-[a-zA-Z]*rf?\b", "Recursive deletion command (rm -rf) detected."),
+            (r"docker\s+(system|volume|container|image|builder)\s+prune", "Docker resource prune command detected."),
+            (r"\breboot\b|\bpoweroff\b|\bshutdown\b|\binit\s+[06]\b", "Host power/reboot command detected."),
+            (r"docker\s+kill\s+", "Docker kill command detected."),
+            (r"\bmv\s+.*?\s+/dev/null\b", "Moving files to /dev/null detected.")
+        ]
+        
+        import re
+        for pattern, desc in blacklist:
+            if re.search(pattern, proposed_fix, re.IGNORECASE):
+                is_safe = False
+                violation = desc
+                break
+
+        if not is_safe:
+            logger.warning(f"UNSAFE command blocked for target '{target_id}': {proposed_fix} ({violation})")
+            incident.status = "BLOCKED"
+            incident.execution_log = f"Remediation BLOCKED: Unsafe command verification failed: {violation}"
+            db.commit()
+            
+            # Send alert notification
+            from app.notifier import send_incident_notification
+            send_incident_notification(incident_id)
+            return
+
+        # 1.7. Update status to FIXING
         incident.status = "FIXING"
         db.commit()
 
@@ -60,36 +100,67 @@ def run_remediation(incident_id: str):
         logger.info("Waiting 10 seconds for container to stabilize...")
         time.sleep(10)
 
-        # 4. Verify status using either systemctl or Docker SDK
+        # 4. Verify health (Uptime Kuma URL label probe -> process health fallback)
         is_healthy = False
         status_detail = ""
-        try:
-            target = db.query(Target).filter(Target.id == target_id).first()
-            if target and target.type == "systemd":
-                res = subprocess.run(["systemctl", "is-active", "--quiet", target_id])
-                if res.returncode == 0:
-                    is_healthy = True
-                    status_detail = "active (running)"
-                else:
-                    status_detail = "inactive/failed"
-            else:
+        
+        # Check if the target is a docker container and has a kuma url label
+        kuma_url = None
+        target = db.query(Target).filter(Target.id == target_id).first()
+        if target and target.type != "systemd":
+            try:
                 client = docker.from_env()
                 container = client.containers.get(target_id)
-                state = container.attrs.get("State", {})
-                running = state.get("Running", False)
-                health = state.get("Health", {}).get("Status", "none")
+                for k, v in container.labels.items():
+                    if k.startswith("kuma.") and k.endswith(".http.url"):
+                        kuma_url = v
+                        break
+            except Exception as label_err:
+                logger.debug(f"Failed to fetch docker labels for kuma verification: {label_err}")
 
-                if running:
-                    if health == "none" or health == "healthy":
-                        is_healthy = True
-                        status_detail = f"running (health: {health})"
-                    else:
-                        status_detail = f"running but health status is '{health}'"
+        if kuma_url:
+            logger.info(f"Verifying target health via Uptime Kuma URL: {kuma_url}")
+            try:
+                import requests
+                resp = requests.get(kuma_url, timeout=5, verify=False)
+                # 2xx, 3xx, and 401 are considered up/healthy
+                if resp.status_code < 400 or resp.status_code == 401:
+                    is_healthy = True
+                    status_detail = f"healthy via web probe (HTTP {resp.status_code})"
                 else:
-                    status_detail = f"not running (status: {state.get('Status')})"
-        except Exception as check_err:
-            status_detail = f"failed to check target state: {check_err}"
-            logger.error(status_detail)
+                    status_detail = f"unhealthy via web probe (HTTP {resp.status_code})"
+            except Exception as http_err:
+                status_detail = f"unhealthy: web probe failed: {http_err}"
+                logger.warning(status_detail)
+
+        # Fallback to process checks if kuma check was not available or failed
+        if not is_healthy:
+            try:
+                if target and target.type == "systemd":
+                    res = subprocess.run(["systemctl", "is-active", "--quiet", target_id])
+                    if res.returncode == 0:
+                        is_healthy = True
+                        status_detail = "active (running)"
+                    else:
+                        status_detail = "inactive/failed"
+                else:
+                    client = docker.from_env()
+                    container = client.containers.get(target_id)
+                    state = container.attrs.get("State", {})
+                    running = state.get("Running", False)
+                    health = state.get("Health", {}).get("Status", "none")
+
+                    if running:
+                        if health == "none" or health == "healthy":
+                            is_healthy = True
+                            status_detail = f"running (health: {health})"
+                        else:
+                            status_detail = f"running but health status is '{health}'"
+                    else:
+                        status_detail = f"not running (status: {state.get('Status')})"
+            except Exception as check_err:
+                status_detail = f"failed to check target state: {check_err}"
+                logger.error(status_detail)
 
         # 5. Handle success/failure state update & notifications
         if is_healthy:

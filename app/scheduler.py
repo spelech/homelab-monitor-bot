@@ -84,12 +84,41 @@ def check_systemd_services():
                 if target.ignored_until and target.ignored_until > datetime.utcnow():
                     continue
 
-                active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
+                # 3. Check active incident
+                active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING", "BLOCKED"]
                 active_inc = db.query(Incident).filter(
                     Incident.target_id == service,
                     Incident.status.in_(active_statuses)
                 ).first()
                 if active_inc:
+                    continue
+
+                # 3.5. Circuit Breaker Check
+                from datetime import timedelta
+                one_hour_ago = datetime.utcnow() - timedelta(minutes=60)
+                recent_failures = db.query(Incident).filter(
+                    Incident.target_id == service,
+                    Incident.status == "FAILED",
+                    Incident.completed_at >= one_hour_ago
+                ).count()
+
+                if recent_failures >= 2:
+                    logger.warning(f"Circuit breaker tripped for systemd service '{service}': {recent_failures} failures in the last 60 minutes.")
+                    incident_id = str(uuid.uuid4())
+                    new_incident = Incident(
+                        id=incident_id,
+                        target_id=service,
+                        status="BLOCKED",
+                        error_logs=f"Circuit breaker tripped: {recent_failures} failures in the last 60 minutes. Automatic recovery disabled.",
+                        created_at=datetime.utcnow(),
+                        completed_at=datetime.utcnow()
+                    )
+                    db.add(new_incident)
+                    db.commit()
+                    
+                    # Send notification
+                    from app.notifier import send_incident_notification
+                    send_incident_notification(incident_id)
                     continue
 
                 log_res = subprocess.run(
