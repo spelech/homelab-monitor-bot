@@ -110,9 +110,9 @@ def send_incident_notification(incident_id: str):
             # Construct Action Buttons Header
             # ntfy supports: http, Label, URL, method=POST, body=JSON
             actions_str = (
-                f"http, Fix Now, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
-                f"http, Defer 24h, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore Target, {webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Fix Now, {webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
+                f"http, Defer 24h, {webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
+                f"http, Ignore Target, {webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
             )
 
         # Always try to send to Telegram as well if configured
@@ -160,9 +160,9 @@ def send_incident_notification(incident_id: str):
         if not is_autopilot:
             local_webhook_url = f"{local_webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
             local_actions_str = (
-                f"http, Fix Now (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"fix\\\"}}; "
-                f"http, Defer 24h (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore Target (Local), {local_webhook_url}, method=POST, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Fix Now (Local), {local_webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
+                f"http, Defer 24h (Local), {local_webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
+                f"http, Ignore Target (Local), {local_webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
             )
             fallback_headers["Actions"] = local_actions_str
 
