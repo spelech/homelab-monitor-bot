@@ -14,6 +14,7 @@ from app.database import init_db, get_db, Target, Incident, SessionLocal
 from app.watcher import start_watcher_thread
 from app.scheduler import start_scheduler
 from app.remediator import run_remediation
+from app.notifier import send_followup_notification
 
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -144,6 +145,35 @@ async def handle_webhook(
     if incident.status in ["FIXING", "RESOLVED", "DEFERRED", "IGNORED"]:
         logger.info(f"Incident {incident_id} already in status {incident.status}. Webhook ignored (duplicate hit).")
         return {"status": "ok", "detail": f"Already processed in state {incident.status}"}
+
+    # 3.5. Health Pre-Check: check if the container recovered on its own
+    target_id = incident.target_id
+    already_healthy = False
+    chk_detail = ""
+    try:
+        import docker
+        client = docker.from_env()
+        container = client.containers.get(target_id)
+        state = container.attrs.get("State", {})
+        running = state.get("Running", False)
+        health = state.get("Health", {}).get("Status", "none")
+        if running and (health == "none" or health == "healthy"):
+            already_healthy = True
+            chk_detail = f"running (health: {health})"
+    except Exception as check_err:
+        logger.warning(f"Webhook health precheck failed for target '{target_id}': {check_err}")
+
+    if already_healthy:
+        logger.info(f"Target '{target_id}' is already healthy ({chk_detail}). Automatically resolving incident {incident_id} without executing action.")
+        incident.status = "RESOLVED"
+        incident.completed_at = datetime.utcnow()
+        incident.execution_log = f"Incident resolved automatically: Target was already healthy ({chk_detail}) when user interacted with notification."
+        db.commit()
+
+        # Send follow-up notification
+        msg = f"Container '{target_id}' was verified healthy ({chk_detail}) and resolved automatically without action."
+        send_followup_notification(incident_id, msg, success=True)
+        return {"status": "ok", "detail": f"Incident was already resolved without action ({chk_detail})"}
 
     # 4. Handle actions
     now = datetime.utcnow()
