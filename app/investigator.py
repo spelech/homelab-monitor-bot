@@ -3,6 +3,7 @@ import re
 import json
 import logging
 import subprocess
+import requests
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from app.database import SessionLocal, Incident, Target
@@ -123,16 +124,36 @@ def trigger_investigation(incident_id: str):
             incident.proposed_fix = proposed_fix
             incident.category = str(category).lower()
 
-            # Check autopilot mode
+            # Check autopilot mode or auto-approve exception for reverse_proxy outages
             from app.database import get_setting
             autopilot_enabled = (get_setting("autopilot") == "true")
 
-            if autopilot_enabled:
+            # Check if external domain probe fails
+            external_domain_down = False
+            ntfy_url = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com")
+            try:
+                probe_resp = requests.get(ntfy_url, timeout=4)
+                if probe_resp.status_code >= 400:
+                    external_domain_down = True
+            except Exception:
+                external_domain_down = True
+
+            is_caddy_issue = (
+                incident.target_id.lower() == "caddy" or 
+                incident.category == "reverse_proxy" or 
+                "caddy" in (proposed_fix or "").lower() or 
+                "caddyfile" in (proposed_fix or "").lower()
+            )
+
+            auto_approve = autopilot_enabled or (external_domain_down and is_caddy_issue)
+
+            if auto_approve:
+                reason = "Autopilot enabled" if autopilot_enabled else "External domains unreachable & reverse proxy issue detected"
+                logger.info(f"Auto-approving remediation ({reason}) for incident {incident_id}")
                 incident.status = "FIXING"
                 db.commit()
-                logger.info(f"Autopilot enabled. Automatically executing fix for incident {incident_id}")
 
-                # Send notification indicating autopilot is running the fix
+                # Send notification indicating fix is being executed automatically
                 from app.notifier import send_incident_notification
                 send_incident_notification(incident_id)
 
@@ -148,6 +169,7 @@ def trigger_investigation(incident_id: str):
                 # Send notification awaiting user approval
                 from app.notifier import send_incident_notification
                 send_incident_notification(incident_id)
+
 
         except Exception as parse_err:
             logger.error(f"Failed to parse agy output for incident {incident_id}: {parse_err}")
