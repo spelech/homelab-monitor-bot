@@ -78,7 +78,8 @@ async def lifespan(app: FastAPI):
     # Shutdown actions (if any)
     logger.info("Shutting down AutoHeal...")
 
-app = FastAPI(title="AutoHeal Autonomous SRE", lifespan=lifespan)
+app = FastAPI(title="AutoHeal Autonomous SRE", version="1.2.0", lifespan=lifespan)
+
 
 class WebhookPayload(BaseModel):
     action: str  # fix, defer, ignore

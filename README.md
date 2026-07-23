@@ -138,7 +138,9 @@ To run MonitorBot continuously as a systemd service:
 
 ## Resiliency Features
 
-### Local Failover & Unreachable Domains
+### Local Failover & Outage Recovery (SMTP & Auto-Approval)
 In the event that external domain resolution, internet access, or the Caddy reverse proxy is down:
-1. **Local ntfy Fallback:** If `NTFY_URL` (e.g. `https://ntfy.wileyriley.com`) is unreachable, the system automatically falls back to `http://localhost:9010` (the host-mapped port for the local `ntfy` container) to deliver the alert locally.
-2. **Local Webhook URL Actions:** The fallback push alerts contain Action buttons that point directly to the host's LAN IP (`http://10.0.0.10:9013`) instead of the external subdomain, ensuring approvals can be processed on the local network.
+1. **Direct SMTP Email Fallback:** If `NTFY_URL` (e.g. `https://ntfy.wileyriley.com`) is unreachable or returns HTTP errors, MonitorBot automatically skips to sending an SMTP email to the system administrator with full incident diagnostics.
+2. **Local LAN & One-Click Fix Links:** Email notifications embed direct local IP links (`http://10.0.0.10:9013/api/webhooks/<ID>?token=<TOKEN>&action=fix`) and copy-pasteable `curl` commands so fixes can be triggered locally without domain name resolution.
+3. **Automatic Reverse Proxy Auto-Approval Exception:** If external domain connectivity probes fail **and** the issue is identified as a Caddy/Caddyfile or reverse proxy failure, MonitorBot automatically approves and executes the AI remediation without waiting for manual user approval.
+
