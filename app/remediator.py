@@ -133,7 +133,26 @@ def run_remediation(incident_id: str):
                 status_detail = f"unhealthy: web probe failed: {http_err}"
                 logger.warning(status_detail)
 
-        # Fallback to process checks if kuma check was not available or failed
+            # If web probe failed, check if Caddy is down or throwing config errors.
+            # If Caddy is the reason web probe failed, ignore web probe failure for this app and rely on container process check instead.
+            if not is_healthy and target_id != "caddy":
+                caddy_down = False
+                try:
+                    client = docker.from_env()
+                    caddy_cont = client.containers.get("caddy")
+                    if caddy_cont.status != "running":
+                        caddy_down = True
+                    else:
+                        caddy_val = caddy_cont.exec_run("caddy validate --config /etc/caddy/Caddyfile")
+                        if caddy_val.exit_code != 0:
+                            caddy_down = True
+                except Exception:
+                    caddy_down = True
+
+                if caddy_down:
+                    logger.warning(f"Web probe failed for '{target_id}', but Caddy reverse proxy is down/invalid. Ignoring web probe and falling back to process status.")
+                    kuma_url = None  # Reset so process check takes over
+
         if not is_healthy:
             try:
                 if target and target.type == "systemd":

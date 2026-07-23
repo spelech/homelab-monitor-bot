@@ -35,9 +35,10 @@ def run_watcher():
                 if not container_name:
                     continue
 
-                # Skip events for monitorbot itself to avoid feedback loops
-                if "monitorbot" in container_name or container_name == "caddy":
+                # Skip events for monitorbot and non-compose containers to avoid feedback loops
+                if "monitorbot" in container_name or "com.docker.compose.project" not in attributes:
                     continue
+
 
                 is_failure = False
                 reason = ""
@@ -76,13 +77,22 @@ def process_failure(docker_client, container_name: str, container_id: str, reaso
             db.commit()
             db.refresh(target)
 
-        # 2. Check if target is ignored
-        if target.ignored_until and target.ignored_until > datetime.utcnow():
-            logger.info(f"Target '{container_name}' is ignored until {target.ignored_until}. Skipping incident creation.")
-            return
+        # 2.5. Caddy Gatekeeper Check:
+        # If target is NOT caddy, check if caddy currently has an active incident.
+        # If Caddy is failing/down, suppress incident creation for downstream containers.
+        if container_name != "caddy":
+            active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING", "BLOCKED"]
+            caddy_active = db.query(Incident).filter(
+                Incident.target_id == "caddy",
+                Incident.status.in_(active_statuses)
+            ).first()
+            if caddy_active:
+                logger.info(f"Cascading suppression: Caddy reverse proxy has active incident {caddy_active.id}. Skipping incident creation for target '{container_name}'.")
+                return
 
-        # 3. Check if there is already an active incident (DETECTED, INVESTIGATING, PENDING_USER, FIXING, BLOCKED) for this target
+        # 3. Check if there is already an active incident for this target
         active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING", "BLOCKED"]
+
         active_incident = db.query(Incident).filter(
             Incident.target_id == container_name,
             Incident.status.in_(active_statuses)
