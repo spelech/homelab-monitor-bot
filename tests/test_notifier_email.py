@@ -42,7 +42,11 @@ def test_send_incident_notification_email_fallback(db_session):
         mock_post.side_effect = Exception("Connection refused / Network unreachable")
         mock_send_email.return_value = True
 
+        import app.notifier
+        app.notifier._last_email_sent_time = None
+
         send_incident_notification("test_email_fallback_inc")
+
 
         mock_send_email.assert_called_once()
         args, kwargs = mock_send_email.call_args

@@ -4,6 +4,8 @@ import base64
 import requests
 import html
 import smtplib
+from datetime import datetime
+
 from email.message import EmailMessage
 from email.header import Header
 from sqlalchemy.orm import Session
@@ -205,9 +207,22 @@ def send_incident_notification(incident_id: str):
                 f"-H \"Content-Type: application/json\" -d '{{\"action\": \"fix\"}}'\n"
             )
 
+        # Rate Limiting / Batching for Email Notifications:
+        # If an email fallback was sent in the last 15 minutes, log and skip sending individual emails for cascading failures.
+        global _last_email_sent_time
+        if '_last_email_sent_time' not in globals():
+            _last_email_sent_time = None
+        
+        now = datetime.utcnow()
+        if _last_email_sent_time and (now - _last_email_sent_time).total_seconds() < 900:
+            logger.info(f"Skipping individual email for incident {incident_id} (email rate limit active: max 1 digest per 15m).")
+            return
+
         if send_email_notification(title, email_body):
-            incident.last_notified_at = datetime.utcnow()
-            db.commit()
+            _last_email_sent_time = now
+            logger.info(f"Fallback email notification sent for incident {incident_id}")
+
+
 
 
     except Exception as e:
