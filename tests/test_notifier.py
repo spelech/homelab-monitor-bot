@@ -30,17 +30,9 @@ def test_send_incident_notification_fallback(db_session):
     db_session.add(incident)
     db_session.commit()
 
-    # Mock requests.post to raise exception on primary and succeed on localhost fallback
-    def mock_post(url, *args, **kwargs):
-        resp = MagicMock()
-        if "unreachable-test" in url or "wileyriley" in url:
-            raise Exception("Connection timed out")
-        else:
-            resp.status_code = 200
-            return resp
-
-    with patch("requests.post", side_effect=mock_post) as mock_requests_post:
-        # Mock configs using patch.dict
+    with patch("requests.post", side_effect=Exception("Connection timed out")) as mock_requests_post, \
+         patch("app.notifier.send_email_notification", return_value=True) as mock_send_email:
+        
         with patch.dict(os.environ, {
             "NTFY_URL": "https://ntfy.unreachable-test.com",
             "NTFY_TOPIC": "alerts",
@@ -49,19 +41,15 @@ def test_send_incident_notification_fallback(db_session):
         }):
             send_incident_notification("test-notifier-uuid")
             
-            # Verify primary was attempted, then fallback was attempted
-            assert mock_requests_post.call_count >= 2
-            
+            # Primary NTFY was attempted
+            assert mock_requests_post.call_count >= 1
             first_url = mock_requests_post.call_args_list[0][0][0]
             assert "unreachable-test" in first_url
-            
-            second_url = mock_requests_post.call_args_list[1][0][0]
-            assert "http://localhost:9010" in second_url
-            
-            # Check fallback action buttons header targets the local IP
-            fallback_headers = mock_requests_post.call_args_list[1][1]["headers"]
-            assert "Actions" in fallback_headers
-            assert "http://10.0.0.10:9013" in fallback_headers["Actions"]
+
+            # Direct fallback to email was triggered
+            mock_send_email.assert_called_once()
+            assert "test-notifier-target failure" in mock_send_email.call_args[0][0]
+
 
 def test_send_telegram_invoked(db_session):
     target = Target(id="test-tg-target", type="docker")

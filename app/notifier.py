@@ -3,6 +3,8 @@ import logging
 import base64
 import requests
 import html
+import smtplib
+from email.message import EmailMessage
 from email.header import Header
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -18,6 +20,37 @@ def safe_header(value: str) -> str:
         return Header(value, 'utf-8', maxlinelen=999999).encode()
 
 logger = logging.getLogger("Notifier")
+
+def send_email_notification(subject: str, body: str):
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASS")
+    email_from = os.getenv("EMAIL_FROM", smtp_user)
+    email_to = os.getenv("EMAIL_TO", "steven.pelech@gmail.com")
+
+    if not smtp_server or not smtp_user or not smtp_pass:
+        logger.warning("SMTP email skip: SMTP_SERVER, SMTP_USER, or SMTP_PASS not configured.")
+        return False
+
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = email_from
+        msg["To"] = email_to
+        msg.set_content(body)
+
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+        logger.info(f"Fallback email notification sent successfully to {email_to}.")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send fallback email notification: {e}")
+        return False
+
 
 def send_telegram_notification(title: str, body: str, incident_id: str = None):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -150,46 +183,38 @@ def send_incident_notification(incident_id: str):
                 db.commit()
                 return
             else:
-                logger.error(f"Failed to send notification. Status: {resp.status_code}, Body: {resp.text}")
+                logger.error(f"Failed to send notification to NTFY_URL. Status: {resp.status_code}, Body: {resp.text}")
         except Exception as conn_err:
-            logger.warning(f"Failed to connect to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
+            logger.warning(f"Failed to connect to NTFY_URL ({url}): {conn_err}. Directing fallback to SMTP email...")
 
-        # Fallback to local URL and local action webhook
-        ntfy_fallback_url = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
-        local_webhook_base_url = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://localhost:9013").rstrip("/")
+        # Immediate Fallback: Email notification via SMTP when primary NTFY_URL is down/unreachable
+        logger.info(f"Triggering immediate SMTP email fallback for incident {incident_id}...")
         
-        local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
+        # Build local LAN links and CLI commands for email body
+        local_ip_webhook_base = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://10.0.0.10:9013").rstrip("/")
+        email_body = message_body
         
-        fallback_headers = {
-            "Title": safe_header(f"{title} (Local Fallback)"),
-            "Priority": incident_priority,
-            "Tags": "robot,zap" if is_autopilot else "rotating_light,computer",
-        }
-        if not is_autopilot:
-            local_webhook_url = f"{local_webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
-            local_actions_str = (
-                f"http, Fix Now (Local), {local_webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
-                f"http, Defer 24h (Local), {local_webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore Target (Local), {local_webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
+        if incident.status == "PENDING_USER":
+            fix_lan_url = f"{local_ip_webhook_base}/api/webhooks/{incident_id}?token={webhook_token}&action=fix"
+            email_body += (
+                f"\n\n--- 🌐 Outage Recovery Actions ---\n"
+                f"If reverse proxy domains are down, click the local LAN link or run the CLI command below:\n\n"
+                f"🔗 Direct LAN Fix Link: {fix_lan_url}\n\n"
+                f"💻 Terminal CLI Command:\n"
+                f"curl -X POST \"{local_ip_webhook_base}/api/webhooks/{incident_id}?token={webhook_token}\" "
+                f"-H \"Content-Type: application/json\" -d '{{\"action\": \"fix\"}}'\n"
             )
-            fallback_headers["Actions"] = local_actions_str
 
-        if auth:
-            fallback_headers["Authorization"] = auth
-            
-        logger.info(f"Sending fallback notification for incident {incident_id} to {local_ntfy_url}...")
-        fallback_resp = requests.post(local_ntfy_url, data=message_body.encode("utf-8"), headers=fallback_headers, timeout=10)
-        if fallback_resp.status_code == 200:
-            logger.info(f"Fallback notification sent successfully for incident {incident_id}")
+        if send_email_notification(title, email_body):
             incident.last_notified_at = datetime.utcnow()
             db.commit()
-        else:
-            logger.error(f"Failed to send fallback notification. Status: {fallback_resp.status_code}, Body: {fallback_resp.text}")
+
 
     except Exception as e:
-        logger.error(f"Error sending ntfy notification: {e}")
+        logger.error(f"Error sending notification: {e}")
     finally:
         db.close()
+
 
 
 def send_followup_notification(incident_id: str, message: str, success: bool):
@@ -230,28 +255,13 @@ def send_followup_notification(incident_id: str, message: str, success: bool):
                 logger.info(f"Follow-up notification sent for incident {incident_id}")
                 return
             else:
-                logger.error(f"Failed to send follow-up. Status: {resp.status_code}, Body: {resp.text}")
-                # Fall through to fallback
+                logger.error(f"Failed to send follow-up to NTFY_URL. Status: {resp.status_code}, Body: {resp.text}")
         except Exception as conn_err:
-            logger.warning(f"Failed to send follow-up to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
+            logger.warning(f"Failed to send follow-up to NTFY_URL ({url}): {conn_err}. Directing fallback to SMTP email...")
 
-        # Fallback to local URL
-        ntfy_fallback_url = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
-        local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
-        fallback_headers = {
-            "Title": safe_header(f"{title} (Local Fallback)"),
-            "Priority": followup_priority,
-            "Tags": tags
-        }
-        if auth:
-            fallback_headers["Authorization"] = auth
-
-        logger.info(f"Sending fallback follow-up notification to {local_ntfy_url}...")
-        fallback_resp = requests.post(local_ntfy_url, data=message.encode("utf-8"), headers=fallback_headers, timeout=10)
-        if fallback_resp.status_code == 200:
-            logger.info(f"Fallback follow-up notification sent for incident {incident_id}")
-        else:
-            logger.error(f"Failed to send fallback follow-up. Status: {fallback_resp.status_code}, Body: {fallback_resp.text}")
+        # Immediate Fallback: Email notification via SMTP
+        logger.info(f"Triggering immediate SMTP email fallback for follow-up on incident {incident_id}...")
+        send_email_notification(title, message)
 
     except Exception as e:
         logger.error(f"Error sending follow-up notification: {e}")
@@ -290,26 +300,10 @@ def send_heartbeat_notification():
         else:
             logger.error(f"Failed to send heartbeat. Status: {resp.status_code}, Body: {resp.text}")
     except Exception as conn_err:
-        logger.warning(f"Failed to send heartbeat to primary NTFY_URL ({url}): {conn_err}. Trying local fallback...")
+        logger.warning(f"Failed to send heartbeat to NTFY_URL ({url}): {conn_err}. Directing fallback to SMTP email...")
 
-    # Fallback to local URL
-    ntfy_fallback_url = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
-    local_ntfy_url = f"{ntfy_fallback_url}/{ntfy_topic}"
-    fallback_headers = {
-        "Title": safe_header(f"{title} (Local Fallback)"),
-        "Priority": "low",
-        "Tags": "green_heart,nut_and_bolt"
-    }
-    if auth:
-        fallback_headers["Authorization"] = auth
+    # Immediate Fallback: Email notification via SMTP
+    logger.info("Triggering immediate SMTP email fallback for heartbeat...")
+    send_email_notification(title, message)
 
-    logger.info(f"Sending fallback heartbeat notification to {local_ntfy_url}...")
-    try:
-        fallback_resp = requests.post(local_ntfy_url, data=message.encode("utf-8"), headers=fallback_headers, timeout=10)
-        if fallback_resp.status_code == 200:
-            logger.info("Fallback heartbeat notification sent successfully.")
-        else:
-            logger.error(f"Failed to send fallback heartbeat. Status: {fallback_resp.status_code}, Body: {fallback_resp.text}")
-    except Exception as e:
-        logger.error(f"Error sending fallback heartbeat: {e}")
 
