@@ -122,14 +122,20 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
         "token": WEBHOOK_TOKEN
     })
 
-@app.post("/api/webhooks/{incident_id}")
+@app.api_route("/api/webhooks/{incident_id}", methods=["GET", "POST"])
 async def handle_webhook(
     incident_id: str,
-    payload: WebhookPayload,
     background_tasks: BackgroundTasks,
+    payload: WebhookPayload = None,
+    action: str = Query(None),
     token: str = Query(...),
     db: Session = Depends(get_db)
 ):
+    # Determine action from JSON body or query param
+    act = (payload.action if payload else action) or action
+    if not act:
+        raise HTTPException(status_code=400, detail="Action parameter required")
+
     # 1. Authenticate secret token
     if token != WEBHOOK_TOKEN:
         logger.warning(f"Unauthorized webhook trigger attempt. Token: {token}")
@@ -141,7 +147,8 @@ async def handle_webhook(
         raise HTTPException(status_code=404, detail="Incident not found")
 
     # 3. Idempotency Check
-    action = payload.action.lower()
+    action = act.lower()
+
     if incident.status in ["FIXING", "RESOLVED", "DEFERRED", "IGNORED"]:
         logger.info(f"Incident {incident_id} already in status {incident.status}. Webhook ignored (duplicate hit).")
         return {"status": "ok", "detail": f"Already processed in state {incident.status}"}
