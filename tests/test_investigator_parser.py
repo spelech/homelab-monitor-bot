@@ -83,5 +83,5 @@ def test_trigger_investigation_failure(db_session):
         updated_incident = db_session.query(Incident).filter(Incident.id == "test-incident-failed").first()
         
         assert updated_incident.status == "FAILED"
-        assert "agy error" in updated_incident.execution_log
+        assert "error" in updated_incident.execution_log.lower()
         mock_notify.assert_not_called()

@@ -16,7 +16,7 @@ load_dotenv()
 
 logger = logging.getLogger("Investigator")
 
-AI_EXECUTOR = os.getenv("AI_EXECUTOR", "agy").lower()
+AI_EXECUTOR = os.getenv("AI_EXECUTOR", "opencode").lower()
 AGY_PATH = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
 OPENCODE_PATH = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.17.0/bin/opencode")
 OPENCODE_SERVER_URL = os.getenv("OPENCODE_SERVER_URL", "http://localhost:8447")
@@ -142,7 +142,7 @@ def run_investigation_logic(db: Session, incident: Incident):
 
     # 4. Run AI executor (HTTP API or CLI Subprocess)
     output = None
-    current_executor = os.getenv("AI_EXECUTOR", "agy").lower()
+    current_executor = os.getenv("AI_EXECUTOR", "opencode").lower()
     if current_executor == "opencode":
         try:
             logger.info(f"Attempting opencode serve HTTP API at {OPENCODE_SERVER_URL} for incident {incident_id}...")
