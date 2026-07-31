@@ -20,20 +20,26 @@ AI_EXECUTOR = os.getenv("AI_EXECUTOR", "opencode").lower()
 AGY_PATH = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
 OPENCODE_PATH = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.17.0/bin/opencode")
 OPENCODE_SERVER_URL = os.getenv("OPENCODE_SERVER_URL", "http://localhost:8447")
-OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "litellm/qwen3.5-flash-02-23")
+OPENCODE_PROVIDER_ID = os.getenv("OPENCODE_PROVIDER_ID", "litellm")
+OPENCODE_MODEL_ID = os.getenv("OPENCODE_MODEL_ID", "qwen3.5-flash-02-23")
 
-def call_opencode_server(prompt: str, model: str = None, timeout: int = 180) -> str:
+def call_opencode_server(prompt: str, provider_id: str = None, model_id: str = None, timeout: int = 180) -> str:
     """Call headless opencode serve HTTP API."""
     url = OPENCODE_SERVER_URL.rstrip('/')
-    target_model = model or OPENCODE_MODEL
-    session_payload = {}
-    if target_model:
-        session_payload["model"] = target_model
-    session_res = requests.post(f"{url}/session", json=session_payload, timeout=10)
+    target_provider = provider_id or OPENCODE_PROVIDER_ID
+    target_model = model_id or OPENCODE_MODEL_ID
+    
+    session_res = requests.post(f"{url}/session", json={}, timeout=10)
     session_res.raise_for_status()
     session_id = session_res.json()["id"]
 
-    msg_payload = {"parts": [{"type": "text", "text": prompt}]}
+    msg_payload = {
+        "model": {
+            "providerID": target_provider,
+            "modelID": target_model
+        },
+        "parts": [{"type": "text", "text": prompt}]
+    }
     msg_res = requests.post(f"{url}/session/{session_id}/message", json=msg_payload, timeout=timeout)
     msg_res.raise_for_status()
 
@@ -154,7 +160,7 @@ def run_investigation_logic(db: Session, incident: Incident):
             output = call_opencode_server(prompt)
         except Exception as api_err:
             logger.warning(f"opencode serve HTTP API failed: {api_err}. Falling back to CLI subprocess...")
-            cmd = [OPENCODE_PATH, "run", "--auto", "--model", OPENCODE_MODEL, prompt]
+            cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode == 0:
