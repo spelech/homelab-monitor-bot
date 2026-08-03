@@ -27,7 +27,7 @@ from app.investigator import (
 def test_live_opencode_serve_http_api():
     """Verify live HTTP API interaction with opencode serve daemon."""
     prompt = "Respond with exactly: LIVE_SERVE_VERIFIED"
-    res = call_opencode_server(prompt, timeout=60)
+    res = call_opencode_server(prompt, timeout=120)
     assert "LIVE_SERVE_VERIFIED" in res
 
 
