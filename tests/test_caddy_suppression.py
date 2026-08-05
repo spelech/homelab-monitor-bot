@@ -3,7 +3,8 @@ from unittest.mock import patch, MagicMock
 from app.database import Incident, Target
 from app.watcher import process_failure
 
-def test_caddy_cascading_suppression(db_session):
+@patch("app.database.check_maintenance_status", return_value=(False, ""))
+def test_caddy_cascading_suppression(mock_maint, db_session):
     # 1. Create an active Caddy incident
     caddy_target = Target(id="caddy", type="docker")
     db_session.add(caddy_target)

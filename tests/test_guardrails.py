@@ -107,8 +107,9 @@ def test_command_safety_blocks_unsafe_fixes(mock_notify, unsafe_command, violati
     assert "Remediation BLOCKED: Unsafe command verification failed" in inc_db.execution_log
 
 # 4. Circuit Breaker blocks loop
+@patch("app.database.check_maintenance_status", return_value=(False, ""))
 @patch("app.notifier.send_incident_notification")
-def test_circuit_breaker_trips(mock_notify, db_session):
+def test_circuit_breaker_trips(mock_notify, mock_maint, db_session):
     target = Target(id="loopy-service", type="docker")
     db_session.add(target)
     
