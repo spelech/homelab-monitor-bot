@@ -10,6 +10,11 @@ from unittest.mock import patch, MagicMock
 from app.database import Incident, Target
 from app.scheduler import check_deferred_and_ignored
 
+@pytest.fixture(autouse=True)
+def default_no_maintenance():
+    with patch("app.database.check_maintenance_status", return_value=(False, "")):
+        yield
+
 def test_expired_ignores_cleared(db_session):
     # Setup an ignored target whose ignore period has expired
     expired_time = datetime.utcnow() - timedelta(minutes=5)
@@ -166,3 +171,36 @@ def test_check_systemd_services_inactive(mock_thread, mock_run, mock_getenv, db_
 
     # Verify thread started trigger_investigation
     mock_thread.assert_called_once()
+
+@patch("app.database.check_maintenance_status")
+@patch("subprocess.run")
+def test_check_systemd_services_maintenance_bypassed(mock_run, mock_maint, db_session):
+    mock_maint.return_value = (True, "Manual maintenance (indefinite)")
+    from app.scheduler import check_systemd_services
+    check_systemd_services()
+    mock_run.assert_not_called()
+    assert db_session.query(Incident).count() == 0
+
+@patch("app.database.check_maintenance_status")
+@patch("app.scheduler.send_incident_notification")
+def test_check_deferred_and_ignored_maintenance_skips_renotify(mock_notify, mock_maint, db_session):
+    mock_maint.return_value = (True, "Manual maintenance")
+    target = Target(id="test-renotify-maint", type="docker")
+    db_session.add(target)
+    db_session.commit()
+
+    two_hours_ago = datetime.utcnow() - timedelta(hours=2)
+    incident = Incident(
+        id="inc-renotify-maint-001",
+        target_id="test-renotify-maint",
+        status="PENDING_USER",
+        created_at=two_hours_ago,
+        last_notified_at=two_hours_ago
+    )
+    db_session.add(incident)
+    db_session.commit()
+
+    check_deferred_and_ignored()
+    mock_notify.assert_not_called()
+
+
