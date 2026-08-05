@@ -125,5 +125,47 @@ def test_api_settings_maintenance(db_session):
         assert data["maintenance_mode"] == "indefinite"
         assert "indefinite" in data["maintenance_reason"]
 
+def test_cli_pause_and_resume(db_session, capsys):
+    import sys
+    import pytest
+    from cli import main
+
+    # Test pause default (indefinite)
+    with patch.object(sys, "argv", ["cli.py", "pause"]):
+        main()
+    out = capsys.readouterr().out
+    assert "Maintenance Mode ENABLED indefinitely" in out
+    assert get_setting("maintenance_mode") == "indefinite"
+
+    # Test status during maintenance
+    with patch.object(sys, "argv", ["cli.py", "status"]), patch("os.path.exists", return_value=False):
+        main()
+    out = capsys.readouterr().out
+    assert "Maintenance Mode:              ACTIVE" in out
+
+    # Test resume
+    with patch.object(sys, "argv", ["cli.py", "resume"]):
+        main()
+    out = capsys.readouterr().out
+    assert "Maintenance Mode DISABLED" in out
+    assert get_setting("maintenance_mode") == "false"
+
+    # Test timed pause (30m)
+    with patch.object(sys, "argv", ["cli.py", "pause", "30m"]):
+        main()
+    out = capsys.readouterr().out
+    assert "Maintenance Mode ENABLED until" in out
+    assert "30m" in out
+    assert get_setting("maintenance_mode") != "false"
+
+    # Test invalid duration
+    with patch.object(sys, "argv", ["cli.py", "pause", "invalid_fmt"]):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert "Error: Invalid duration format" in out
+
+
 
 
