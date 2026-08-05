@@ -68,3 +68,62 @@ def test_process_failure_suppressed_during_maintenance(db_session):
     inc = db_session.query(Incident).filter(Incident.target_id == "target_app").first()
     assert inc is None
 
+def test_api_maintenance_modes(db_session):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_setting
+
+    client = TestClient(app)
+
+    # 1. Test indefinite pause
+    resp = client.post("/api/maintenance", json={"duration": "indefinite"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+    assert get_setting("maintenance_mode") == "indefinite"
+
+    # 2. Test resume
+    resp = client.post("/api/maintenance", json={"duration": "resume"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+    assert get_setting("maintenance_mode") == "false"
+
+    # 3. Test timed pause (e.g. 15m)
+    resp = client.post("/api/maintenance", json={"duration": "15m"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+    assert get_setting("maintenance_mode") != "false"
+    assert get_setting("maintenance_mode") != "indefinite"
+    assert "Z" in get_setting("maintenance_mode")
+
+    # 4. Test invalid duration
+    resp = client.post("/api/maintenance", json={"duration": "invalid"})
+    assert resp.status_code == 400
+
+def test_api_settings_maintenance(db_session):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import set_setting
+
+    client = TestClient(app)
+
+    # Set non-maintenance state
+    set_setting("maintenance_mode", "false")
+    with patch("os.path.exists", return_value=False):
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["maintenance_active"] is False
+        assert data["maintenance_mode"] == "false"
+
+    # Set indefinite maintenance
+    set_setting("maintenance_mode", "indefinite")
+    with patch("os.path.exists", return_value=False):
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["maintenance_active"] is True
+        assert data["maintenance_mode"] == "indefinite"
+        assert "indefinite" in data["maintenance_reason"]
+
+
+
