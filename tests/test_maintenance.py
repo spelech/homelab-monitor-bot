@@ -53,3 +53,18 @@ def test_check_maintenance_status_active_update_script(db_session):
         is_maint, reason = check_maintenance_status(db_session)
         assert is_maint is True
         assert "Active update script" in reason
+
+def test_process_failure_suppressed_during_maintenance(db_session):
+    from unittest.mock import MagicMock
+    from app.watcher import process_failure
+    from app.database import Incident
+
+    set_setting("maintenance_mode", "indefinite")
+    mock_docker = MagicMock()
+    
+    with patch("os.path.exists", return_value=False):
+        process_failure(mock_docker, "target_app", "mock_id_456", "Container died")
+
+    inc = db_session.query(Incident).filter(Incident.target_id == "target_app").first()
+    assert inc is None
+

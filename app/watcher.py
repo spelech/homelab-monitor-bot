@@ -69,6 +69,12 @@ def run_watcher():
 def process_failure(docker_client, container_name: str, container_id: str, reason: str):
     db: Session = SessionLocal()
     try:
+        from app.database import check_maintenance_status
+        is_maint, maint_reason = check_maintenance_status(db)
+        if is_maint:
+            logger.info(f"Skipping incident detection for target '{container_name}': {maint_reason}")
+            return
+
         # 1. Fetch or create target
         target = db.query(Target).filter(Target.id == container_name).first()
         if not target:
