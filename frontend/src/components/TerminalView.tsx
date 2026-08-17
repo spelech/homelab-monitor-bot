@@ -8,10 +8,12 @@ interface TerminalViewProps {
 }
 
 export const TerminalView: React.FC<TerminalViewProps> = ({ logs, currentStep, status }) => {
-  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const terminalBodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (terminalBodyRef.current) {
+      terminalBodyRef.current.scrollTop = terminalBodyRef.current.scrollHeight;
+    }
   }, [logs]);
 
   return (
@@ -42,7 +44,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ logs, currentStep, s
         </div>
       </div>
 
-      <div className="terminal-body">
+      <div className="terminal-body" ref={terminalBodyRef}>
         {logs.length === 0 ? (
           <div className="text-muted" style={{ fontStyle: 'italic' }}>
             Awaiting upgrade tasks...
@@ -55,7 +57,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ logs, currentStep, s
             </div>
           ))
         )}
-        <div ref={terminalEndRef} />
       </div>
     </div>
   );
