@@ -198,6 +198,21 @@ def run_investigation_logic(db: Session, incident: Incident):
 
     logger.info(f"Received output from {current_executor}: {output}")
 
+    # Record AI Usage & Spend metrics
+    try:
+        from app.ai_usage import record_ai_usage
+        model_name = OPENCODE_MODEL_ID if current_executor == "opencode" else "gemini-3.5-flash-medium"
+        record_ai_usage(
+            incident_id=incident_id,
+            executor=current_executor,
+            model_id=model_name,
+            prompt_text=prompt,
+            completion_text=output or "",
+            status="SUCCESS" if output else "FAILED"
+        )
+    except Exception as usage_err:
+        logger.warning(f"Failed to record AI usage in investigator: {usage_err}")
+
     # 5. Parse and scrub JSON
     try:
         json_match = re.search(r"\{.*\}", output, re.DOTALL)

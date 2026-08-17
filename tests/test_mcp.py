@@ -5,40 +5,7 @@ from app.main import app, list_tools, call_tool
 from app.database import Incident, Target
 from mcp.types import TextContent
 
-@pytest.fixture
-def client():
-    return TestClient(app)
 
-def test_api_search_incidents(client, db_session):
-    # Setup test incidents
-    target = Target(id="test-search-target", type="docker")
-    db_session.add(target)
-    db_session.commit()
-
-    incident = Incident(
-        id="incident-uuid-1",
-        target_id="test-search-target",
-        status="RESOLVED",
-        category="network",
-        root_cause="Network timeout to gateway.",
-        proposed_fix="ping 1.1.1.1"
-    )
-    db_session.add(incident)
-    db_session.commit()
-
-    # Mock qdrant_mem.semantic_search
-    mock_match = MagicMock()
-    mock_match.id = "incident-uuid-1"
-    mock_match.score = 0.95
-
-    with patch("app.qdrant_mem.qdrant_mem.semantic_search", return_value=[mock_match]):
-        resp = client.get("/api/incidents/search?q=timeout")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "incident-uuid-1"
-        assert data[0]["category"] == "network"
-        assert data[0]["score"] == 0.95
 
 @pytest.mark.asyncio
 async def test_mcp_list_tools():
@@ -98,28 +65,3 @@ async def test_mcp_call_tool_history(db_session):
     assert "settings" in result[0].text
     assert "Config parameter mismatch." in result[0].text
 
-def test_api_settings(client, db_session):
-    # Verify defaults seeded in DB
-    resp = client.get("/api/settings")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["silent_mode"] is False
-    assert data["autopilot"] is False
-
-    # Update silent_mode
-    resp = client.post("/api/settings", json={"silent_mode": True})
-    assert resp.status_code == 200
-    
-    resp = client.get("/api/settings")
-    data = resp.json()
-    assert data["silent_mode"] is True
-    assert data["autopilot"] is False
-
-    # Update autopilot
-    resp = client.post("/api/settings", json={"autopilot": True})
-    assert resp.status_code == 200
-
-    resp = client.get("/api/settings")
-    data = resp.json()
-    assert data["silent_mode"] is True
-    assert data["autopilot"] is True

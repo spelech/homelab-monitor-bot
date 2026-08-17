@@ -1,0 +1,16 @@
+[Unit]
+Description=AutoHeal SRE MonitorBot
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=steve
+WorkingDirectory=/containers/monitorbot
+EnvironmentFile=/containers/monitorbot/.env
+ExecStart=/bin/bash /containers/monitorbot/run.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

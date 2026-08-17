@@ -5,16 +5,20 @@ from typing import List
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Query, HTTPException, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from app.database import init_db, get_db, Target, Incident, SessionLocal
+from app.database import init_db, get_db, Target, Incident, SessionLocal, get_setting, check_maintenance_status
 from app.watcher import start_watcher_thread
 from app.scheduler import start_scheduler
 from app.remediator import run_remediation
 from app.notifier import send_followup_notification
+
+# Import modular routers
+from app.routers import incidents, upgrades, settings, usage
 
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -31,14 +35,13 @@ logging.basicConfig(
 logger = logging.getLogger("AutoHeal")
 
 # Load environment configs
-WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN")
-if not WEBHOOK_TOKEN:
-    raise ValueError("WEBHOOK_TOKEN environment variable must be set!")
+WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "")
 PORT = int(os.getenv("PORT", "9013"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
-# Setup templates
+# Setup legacy Jinja2 templates directory
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -75,22 +78,97 @@ async def lifespan(app: FastAPI):
     start_telegram_listener()
     
     yield
-    # Shutdown actions (if any)
+    # Shutdown actions
     logger.info("Shutting down AutoHeal...")
 
-app = FastAPI(title="AutoHeal Autonomous SRE", version="1.3.0", lifespan=lifespan)
+app = FastAPI(title="AutoHeal Autonomous SRE", version="2.0.0", lifespan=lifespan)
 
+# Register modular API routers
+app.include_router(incidents.router)
+app.include_router(upgrades.router)
+app.include_router(settings.router)
+app.include_router(usage.router)
 
-class WebhookPayload(BaseModel):
-    action: str  # fix, defer, ignore
+# Mount frontend assets if compiled dist exists
+if os.path.exists(FRONTEND_DIST):
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-class MaintenanceRequest(BaseModel):
-    duration: str  # "15m", "30m", "1h", "2h", "12h", "indefinite", "resume"
+@app.get("/api/dashboard")
+def get_dashboard_data(db: Session = Depends(get_db)):
+    """Unified dashboard state aggregation endpoint."""
+    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING", "BLOCKED"]
+    
+    active_count = db.query(Incident).filter(Incident.status.in_(active_statuses)).count()
+    resolved_count = db.query(Incident).filter(Incident.status == "RESOLVED").count()
+    targets_count = db.query(Target).count()
+    
+    now = datetime.utcnow()
+    ignored_count = db.query(Target).filter(
+        Target.ignored_until.is_not(None),
+        Target.ignored_until > now
+    ).count()
+    
+    active_incidents = db.query(Incident).filter(
+        Incident.status.in_(active_statuses)
+    ).order_by(Incident.created_at.desc()).all()
+    
+    ignored_targets = db.query(Target).filter(
+        Target.ignored_until.is_not(None),
+        Target.ignored_until > now
+    ).all()
+    
+    history_incidents = db.query(Incident).filter(
+        Incident.status.notin_(active_statuses)
+    ).order_by(Incident.created_at.desc()).limit(100).all()
+    
+    def serialize_incidents(list_inc):
+        return [{
+            "id": inc.id,
+            "target_id": inc.target_id,
+            "status": inc.status,
+            "category": inc.category or "unknown",
+            "error_logs": inc.error_logs,
+            "root_cause": inc.root_cause,
+            "proposed_fix": inc.proposed_fix,
+            "execution_log": inc.execution_log,
+            "completed_at": inc.completed_at.isoformat() if inc.completed_at else None,
+            "created_at": inc.created_at.isoformat() if inc.created_at else None
+        } for inc in list_inc]
+        
+    def serialize_targets(list_targ):
+        return [{
+            "id": t.id,
+            "type": t.type,
+            "ignored_until": t.ignored_until.isoformat() if t.ignored_until else None
+        } for t in list_targ]
+        
+    is_active, reason = check_maintenance_status(db)
+
+    return {
+        "active_count": active_count,
+        "resolved_count": resolved_count,
+        "targets_count": targets_count,
+        "ignored_count": ignored_count,
+        "active_incidents": serialize_incidents(active_incidents),
+        "ignored_targets": serialize_targets(ignored_targets),
+        "history_incidents": serialize_incidents(history_incidents),
+        "maintenance_active": is_active,
+        "maintenance_reason": reason,
+        "autopilot": get_setting("autopilot") == "true",
+        "silent_mode": get_setting("silent_mode") == "true"
+    }
 
 @app.get("/", response_class=HTMLResponse)
-def get_dashboard(request: Request, db: Session = Depends(get_db)):
-    # 1. Fetch counts
-    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
+def get_root_ui(request: Request, db: Session = Depends(get_db)):
+    """Serve React frontend if built, or fallback to legacy Jinja2."""
+    index_file = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+
+    # Fallback to legacy Jinja2 template
+    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING", "BLOCKED"]
     active_count = db.query(Incident).filter(Incident.status.in_(active_statuses)).count()
     resolved_count = db.query(Incident).filter(Incident.status == "RESOLVED").count()
     targets_count = db.query(Target).count()
@@ -101,7 +179,6 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
         Target.ignored_until > now
     ).count()
 
-    # 2. Fetch records
     active_incidents = db.query(Incident).filter(
         Incident.status.in_(active_statuses)
     ).order_by(Incident.created_at.desc()).all()
@@ -115,7 +192,6 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
         Incident.status.notin_(active_statuses)
     ).order_by(Incident.created_at.desc()).limit(100).all()
 
-    from app.database import get_setting, check_maintenance_status
     is_active, reason = check_maintenance_status(db)
 
     return templates.TemplateResponse(request, "index.html", {
@@ -132,274 +208,15 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
         "maintenance_reason": reason
     })
 
-@app.api_route("/api/webhooks/{incident_id}", methods=["GET", "POST"])
-async def handle_webhook(
-    incident_id: str,
-    background_tasks: BackgroundTasks,
-    payload: WebhookPayload = None,
-    action: str = Query(None),
-    token: str = Query(...),
-    db: Session = Depends(get_db)
-):
-    # Determine action from JSON body or query param
-    act = (payload.action if payload else action) or action
-    if not act:
-        raise HTTPException(status_code=400, detail="Action parameter required")
-
-    # 1. Authenticate secret token
-    if token != WEBHOOK_TOKEN:
-        logger.warning(f"Unauthorized webhook trigger attempt. Token: {token}")
-        raise HTTPException(status_code=401, detail="Invalid auth token")
-
-    # 2. Query incident
-    incident = db.query(Incident).filter(Incident.id == incident_id).first()
-    if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found")
-
-    # 3. Idempotency Check
-    action = act.lower()
-
-    if incident.status in ["FIXING", "RESOLVED", "DEFERRED", "IGNORED"]:
-        logger.info(f"Incident {incident_id} already in status {incident.status}. Webhook ignored (duplicate hit).")
-        return {"status": "ok", "detail": f"Already processed in state {incident.status}"}
-
-    # 3.5. Health Pre-Check: check if the target recovered on its own
-    target_id = incident.target_id
-    already_healthy = False
-    chk_detail = ""
-    try:
-        target = db.query(Target).filter(Target.id == target_id).first()
-        if target and target.type == "systemd":
-            import subprocess
-            res = subprocess.run(["systemctl", "is-active", "--quiet", target_id])
-            if res.returncode == 0:
-                already_healthy = True
-                chk_detail = "active (running)"
-        else:
-            import docker
-            client = docker.from_env()
-            container = client.containers.get(target_id)
-            state = container.attrs.get("State", {})
-            running = state.get("Running", False)
-            health = state.get("Health", {}).get("Status", "none")
-            if running and (health == "none" or health == "healthy"):
-                already_healthy = True
-                chk_detail = f"running (health: {health})"
-    except Exception as check_err:
-        logger.warning(f"Webhook health precheck failed for target '{target_id}': {check_err}")
-
-    if already_healthy:
-        logger.info(f"Target '{target_id}' is already healthy ({chk_detail}). Automatically resolving incident {incident_id} without executing action.")
-        incident.status = "RESOLVED"
-        incident.completed_at = datetime.utcnow()
-        incident.execution_log = f"Incident resolved automatically: Target was already healthy ({chk_detail}) when user interacted with notification."
-        db.commit()
-
-        # Send follow-up notification
-        msg = f"Container '{target_id}' was verified healthy ({chk_detail}) and resolved automatically without action."
-        send_followup_notification(incident_id, msg, success=True)
-        return {"status": "ok", "detail": f"Incident was already resolved without action ({chk_detail})"}
-
-    # 4. Handle actions
-    now = datetime.utcnow()
-    if action == "defer":
-        logger.info(f"Deferring incident {incident_id} by 24 hours.")
-        incident.deferred_until = now + timedelta(hours=24)
-        incident.status = "DEFERRED"
-        db.commit()
-        return {"status": "ok", "detail": "Incident deferred for 24h"}
-
-    elif action == "ignore":
-        logger.info(f"Ignoring target '{incident.target_id}' permanently.")
-        target = db.query(Target).filter(Target.id == incident.target_id).first()
-        if target:
-            target.ignored_until = datetime(9999, 12, 31, 23, 59, 59)
-        incident.status = "IGNORED"
-        db.commit()
-        return {"status": "ok", "detail": f"Target {incident.target_id} permanently ignored"}
-
-    elif action == "fix":
-        logger.info(f"Approved fix for incident {incident_id}. Spawning remediation worker...")
-        incident.status = "FIXING"
-        db.commit()
-        # Spawn remediation async worker task in the background
-        background_tasks.add_task(run_remediation, incident_id)
-        return {"status": "ok", "detail": "Remediation triggered"}
-
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown action '{action}'")
-
-@app.post("/api/maintenance")
-def set_maintenance_mode(req: MaintenanceRequest, db: Session = Depends(get_db)):
-    from app.database import set_setting
-    from datetime import datetime, timedelta
-    
-    val = req.duration.lower()
-    if val == "resume":
-        set_setting("maintenance_mode", "false")
-        logger.info("Maintenance mode disabled manually.")
-        return {"status": "success", "detail": "Monitoring resumed"}
-    elif val == "indefinite":
-        set_setting("maintenance_mode", "indefinite")
-        logger.info("Maintenance mode enabled indefinitely.")
-        return {"status": "success", "detail": "Monitoring paused indefinitely"}
-    else:
-        # Timed duration, e.g. "30m", "2h"
-        import re
-        match = re.match(r'^(\d+)([mh])$', val)
-        if not match:
-            raise HTTPException(status_code=400, detail="Invalid duration format. Use '30m', '2h', 'indefinite', or 'resume'.")
-        amount, unit = match.groups()
-        amount = int(amount)
-        if unit == 'm':
-            expire_dt = datetime.utcnow() + timedelta(minutes=amount)
-        else:
-            expire_dt = datetime.utcnow() + timedelta(hours=amount)
-        
-        # Save as ISO-format string
-        iso_str = expire_dt.isoformat() + "Z"
-        set_setting("maintenance_mode", iso_str)
-        logger.info(f"Maintenance mode enabled until {iso_str}.")
-        return {"status": "success", "detail": f"Monitoring paused for {val}"}
-
-@app.post("/api/targets/{target_id}/unignore")
-def unignore_target(target_id: str, db: Session = Depends(get_db)):
-    target = db.query(Target).filter(Target.id == target_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Target not found")
-    
-    target.ignored_until = None
-    db.commit()
-    logger.info(f"Manually unignored target '{target_id}' via API.")
-    return {"status": "ok", "detail": "Target unignored"}
-
-@app.get("/api/incidents/active")
-def get_active_incidents(db: Session = Depends(get_db)):
-    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
-    incidents = db.query(Incident).filter(Incident.status.in_(active_statuses)).all()
-    return incidents
-
-@app.get("/api/incidents/history")
-def get_history_incidents(db: Session = Depends(get_db)):
-    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
-    incidents = db.query(Incident).filter(Incident.status.notin_(active_statuses)).all()
-    return incidents
-
-@app.get("/api/incidents/search")
-def search_incidents(q: str = Query(...), db: Session = Depends(get_db)):
-    from app.qdrant_mem import qdrant_mem
-    # Perform semantic query in Qdrant
-    matches = qdrant_mem.semantic_search(q, limit=10)
-    if not matches:
-        return []
-    
-    # Retrieve incident details from SQL using matched IDs
-    incident_ids = [match.id for match in matches]
-    incidents = db.query(Incident).filter(Incident.id.in_(incident_ids)).all()
-    
-    # Sort incidents in order of their Qdrant match score
-    id_to_score = {match.id: match.score for match in matches}
-    sorted_incidents = sorted(incidents, key=lambda x: id_to_score.get(x.id, 0), reverse=True)
-    
-    # Return formatted results with similarity scores
-    results = []
-    for inc in sorted_incidents:
-        results.append({
-            "id": inc.id,
-            "target_id": inc.target_id,
-            "status": inc.status,
-            "category": inc.category or "unknown",
-            "root_cause": inc.root_cause,
-            "proposed_fix": inc.proposed_fix,
-            "completed_at": inc.completed_at.isoformat() if inc.completed_at else None,
-            "score": id_to_score.get(inc.id, 0)
-        })
-    return results
-
-@app.get("/api/dashboard")
-def get_dashboard_data(db: Session = Depends(get_db)):
-    active_statuses = ["DETECTED", "INVESTIGATING", "PENDING_USER", "FIXING"]
-    
-    # Counts
-    active_count = db.query(Incident).filter(Incident.status.in_(active_statuses)).count()
-    resolved_count = db.query(Incident).filter(Incident.status == "RESOLVED").count()
-    targets_count = db.query(Target).count()
-    
-    now = datetime.utcnow()
-    ignored_count = db.query(Target).filter(
-        Target.ignored_until.is_not(None),
-        Target.ignored_until > now
-    ).count()
-    
-    # Lists
-    active_incidents = db.query(Incident).filter(
-        Incident.status.in_(active_statuses)
-    ).order_by(Incident.created_at.desc()).all()
-    
-    ignored_targets = db.query(Target).filter(
-        Target.ignored_until.is_not(None),
-        Target.ignored_until > now
-    ).all()
-    
-    history_incidents = db.query(Incident).filter(
-        Incident.status.notin_(active_statuses)
-    ).order_by(Incident.created_at.desc()).limit(100).all()
-    
-    # Serialize helper
-    def serialize_incidents(list_inc):
-        return [{
-            "id": inc.id,
-            "target_id": inc.target_id,
-            "status": inc.status,
-            "category": inc.category or "unknown",
-            "root_cause": inc.root_cause,
-            "proposed_fix": inc.proposed_fix,
-            "execution_log": inc.execution_log,
-            "completed_at": inc.completed_at.isoformat() if inc.completed_at else None,
-            "created_at": inc.created_at.isoformat()
-        } for inc in list_inc]
-        
-    def serialize_targets(list_targ):
-        return [{
-            "id": t.id,
-            "type": t.type,
-            "ignored_until": t.ignored_until.isoformat() if t.ignored_until else None
-        } for t in list_targ]
-        
-    return {
-        "active_count": active_count,
-        "resolved_count": resolved_count,
-        "targets_count": targets_count,
-        "ignored_count": ignored_count,
-        "active_incidents": serialize_incidents(active_incidents),
-        "ignored_targets": serialize_targets(ignored_targets),
-        "history_incidents": serialize_incidents(history_incidents)
-    }
-
-class SettingsUpdate(BaseModel):
-    silent_mode: bool | None = None
-    autopilot: bool | None = None
-
-@app.get("/api/settings")
-def get_system_settings():
-    from app.database import get_setting, check_maintenance_status
-    is_active, reason = check_maintenance_status()
-    return {
-        "silent_mode": get_setting("silent_mode") == "true",
-        "autopilot": get_setting("autopilot") == "true",
-        "maintenance_mode": get_setting("maintenance_mode", "false"),
-        "maintenance_active": is_active,
-        "maintenance_reason": reason
-    }
-
-@app.post("/api/settings")
-def update_system_settings(settings: SettingsUpdate):
-    from app.database import set_setting
-    if settings.silent_mode is not None:
-        set_setting("silent_mode", "true" if settings.silent_mode else "false")
-    if settings.autopilot is not None:
-        set_setting("autopilot", "true" if settings.autopilot else "false")
-    return {"status": "success"}
+# Catch-all route for SPA client-side routing
+@app.get("/{full_path:path}")
+async def catch_all_spa(full_path: str):
+    if full_path.startswith("api") or full_path.startswith("messages") or full_path.startswith("sse"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+    index_file = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Page not found")
 
 # ----------------------------------------------------
 # MCP SERVER INTEGRATION
@@ -452,13 +269,11 @@ async def call_tool(name: str, arguments: dict) -> List[TextContent]:
         if name == "search_incidents":
             query = arguments["query"]
             limit = arguments.get("limit", 5)
-            # Perform search in Qdrant
             from app.qdrant_mem import qdrant_mem
             matches = qdrant_mem.semantic_search(query, limit=limit)
             if not matches:
                 return [TextContent(type="text", text="No similar incidents found in memory.")]
             
-            # Map matches to SQL
             results = []
             for hit in matches:
                 inc = db.query(Incident).filter(Incident.id == hit.id).first()
@@ -493,7 +308,6 @@ async def call_tool(name: str, arguments: dict) -> List[TextContent]:
             incident.status = "FIXING"
             db.commit()
             
-            # Trigger remediation async
             from app.remediator import run_remediation
             threading.Thread(target=run_remediation, args=(incident_id,), daemon=True).start()
             return [TextContent(type="text", text=f"Remediation spawned for incident {incident_id} on target {incident.target_id}")]

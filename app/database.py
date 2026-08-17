@@ -41,18 +41,46 @@ class SystemSetting(Base):
     key = Column(String, primary_key=True, index=True)
     value = Column(String, nullable=False)
 
+class UpgradeRun(Base):
+    __tablename__ = "upgrade_runs"
+
+    id = Column(String, primary_key=True, index=True)  # UUID
+    status = Column(String, default="RUNNING")  # RUNNING, SUCCESS, WARNING, FAILED, CANCELLED
+    targets = Column(Text, nullable=True)  # JSON list or "all"
+    logs = Column(Text, nullable=True)  # Execution output
+    canary_results = Column(Text, nullable=True)  # JSON of canary probe results
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AIUsageLog(Base):
+    __tablename__ = "ai_usage_logs"
+
+    id = Column(String, primary_key=True, index=True)  # UUID
+    incident_id = Column(String, nullable=True)
+    executor = Column(String, default="opencode")  # opencode, agy
+    model_id = Column(String, nullable=True)
+    prompt_tokens = Column(String, default="0")
+    completion_tokens = Column(String, default="0")
+    total_tokens = Column(String, default="0")
+    cost_usd = Column(String, default="0.0000")
+    duration_sec = Column(String, default="0.0")
+    status = Column(String, default="SUCCESS")  # SUCCESS, FAILED
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     # Perform a lightweight schema migration to add new columns if they do not exist
     inspector = inspect(engine)
-    columns = [col['name'] for col in inspector.get_columns('incidents')]
-    with engine.begin() as conn:
-        if 'category' not in columns:
-            conn.execute(text("ALTER TABLE incidents ADD COLUMN category VARCHAR;"))
-        if 'completed_at' not in columns:
-            conn.execute(text("ALTER TABLE incidents ADD COLUMN completed_at DATETIME;"))
-        if 'last_notified_at' not in columns:
-            conn.execute(text("ALTER TABLE incidents ADD COLUMN last_notified_at DATETIME;"))
+    if 'incidents' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('incidents')]
+        with engine.begin() as conn:
+            if 'category' not in columns:
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN category VARCHAR;"))
+            if 'completed_at' not in columns:
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN completed_at DATETIME;"))
+            if 'last_notified_at' not in columns:
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN last_notified_at DATETIME;"))
 
     # Seed default system settings
     db = SessionLocal()
