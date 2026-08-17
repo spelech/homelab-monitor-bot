@@ -28,7 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span style={{ fontWeight: 800, fontSize: '1.2rem', letterSpacing: '-0.02em' }}>
                 AutoHeal <span className="text-emerald">SRE</span>
               </span>
-              <span className="badge badge-healthy" style={{ fontSize: '0.7rem' }}>v2.0.0</span>
+              <span className="badge badge-healthy" style={{ fontSize: '0.7rem' }}>v2.2.1</span>
             </div>
             <div className="text-muted" style={{ fontSize: '0.75rem' }}>
               Autonomous Homelab SRE & Canary Controller

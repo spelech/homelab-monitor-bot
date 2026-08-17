@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
     # Shutdown actions
     logger.info("Shutting down AutoHeal...")
 
-app = FastAPI(title="AutoHeal Autonomous SRE", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="AutoHeal Autonomous SRE", version="2.2.1", lifespan=lifespan)
 
 # Register modular API routers
 app.include_router(incidents.router)
