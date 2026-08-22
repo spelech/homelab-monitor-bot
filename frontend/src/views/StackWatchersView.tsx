@@ -924,7 +924,13 @@ export const StackWatchersView: React.FC<StackWatchersViewProps> = ({
                 <span style={{ fontWeight: 800, fontSize: '1.1rem', fontFamily: 'var(--font-mono)' }}>
                   {selectedIncident.target_id}
                 </span>
-                <span className="badge badge-healthy">{selectedIncident.status}</span>
+                <span className={`badge ${
+                  selectedIncident.status === 'RESOLVED' ? 'badge-healthy' :
+                  selectedIncident.status === 'PENDING_USER' || selectedIncident.status === 'DETECTED' || selectedIncident.status === 'INVESTIGATING' ? 'badge-warning' :
+                  'badge-danger'
+                }`}>
+                  {selectedIncident.status}
+                </span>
               </div>
               <button onClick={() => setSelectedIncident(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem' }}>
                 <X size={16} />
