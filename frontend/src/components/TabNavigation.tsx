@@ -1,7 +1,7 @@
 import React from 'react';
-import { AlertTriangle, ArrowUpCircle, DollarSign, Search, Server, History } from 'lucide-react';
+import { AlertTriangle, Layers, ArrowUpCircle, DollarSign, Search, Server, History } from 'lucide-react';
 
-export type ActiveTab = 'incidents' | 'upgrades' | 'spend' | 'memory' | 'fleet' | 'history';
+export type ActiveTab = 'incidents' | 'stacks' | 'upgrades' | 'spend' | 'memory' | 'fleet' | 'history';
 
 interface TabNavigationProps {
   activeTab: ActiveTab;
@@ -27,6 +27,14 @@ export const TabNavigation: React.FC<TabNavigationProps> = ({
             {activeIncidentsCount}
           </span>
         )}
+      </button>
+
+      <button
+        className={`tab-btn ${activeTab === 'stacks' ? 'active' : ''}`}
+        onClick={() => onTabChange('stacks')}
+      >
+        <Layers size={16} />
+        <span>Stack SRE</span>
       </button>
 
       <button
@@ -71,3 +79,4 @@ export const TabNavigation: React.FC<TabNavigationProps> = ({
     </div>
   );
 };
+

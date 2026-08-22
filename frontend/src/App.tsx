@@ -9,6 +9,7 @@ import { StatusHeader } from './components/StatusHeader';
 import { TabNavigation, ActiveTab } from './components/TabNavigation';
 
 import { ActiveIncidentsView } from './views/ActiveIncidentsView';
+import { StackWatchersView } from './views/StackWatchersView';
 import { UpgradeHubView } from './views/UpgradeHubView';
 import { SpendTrackerView } from './views/SpendTrackerView';
 import { MemorySearchView } from './views/MemorySearchView';
@@ -73,6 +74,16 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'stacks' && (
+          <StackWatchersView
+            onTriggerUpgrade={(targets) => {
+              triggerUpgrade(targets);
+              setActiveTab('upgrades');
+            }}
+            onIncidentAction={triggerAction}
+          />
+        )}
+
         {activeTab === 'upgrades' && (
           <UpgradeHubView
             stacks={stacks}
@@ -102,3 +113,4 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
