@@ -209,16 +209,6 @@ def get_root_ui(request: Request, db: Session = Depends(get_db)):
         "maintenance_reason": reason
     })
 
-# Catch-all route for SPA client-side routing
-@app.get("/{full_path:path}")
-async def catch_all_spa(full_path: str):
-    if full_path.startswith("api") or full_path.startswith("messages") or full_path.startswith("sse"):
-        raise HTTPException(status_code=404, detail="API endpoint not found")
-    index_file = os.path.join(FRONTEND_DIST, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    raise HTTPException(status_code=404, detail="Page not found")
-
 # ----------------------------------------------------
 # MCP SERVER INTEGRATION
 # ----------------------------------------------------
@@ -317,11 +307,23 @@ async def call_tool(name: str, arguments: dict) -> List[TextContent]:
     finally:
         db.close()
 
-# Mount SSE endpoints
+# Mount SSE endpoints (supporting both /sse and /mcp/sse)
 @app.get("/sse")
+@app.get("/mcp/sse")
 async def sse_endpoint(request: Request):
     logger.info("New MCP client SSE connection requested.")
     async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
         await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
 
 app.mount("/messages", sse_transport.handle_post_message)
+app.mount("/mcp/messages", sse_transport.handle_post_message)
+
+# Catch-all route for SPA client-side routing (must be last)
+@app.get("/{full_path:path}")
+async def catch_all_spa(full_path: str):
+    if full_path.startswith("api") or full_path.startswith("messages") or full_path.startswith("sse") or full_path.startswith("mcp"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+    index_file = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Page not found")

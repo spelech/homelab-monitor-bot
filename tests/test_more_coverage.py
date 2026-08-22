@@ -61,7 +61,20 @@ def test_remediator_execution_kuma_probe(mock_docker, mock_sleep, mock_run, db_s
         db_session.refresh(inc)
         assert inc.status == "RESOLVED"
 
-def test_main_mcp_sse_endpoint():
-    # Test mcp endpoint status code
-    res = client.get("/mcp/sse")
-    assert res.status_code in [200, 307, 404, 405]
+@pytest.mark.asyncio
+async def test_main_mcp_sse_endpoint():
+    from app.main import sse_endpoint
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    @asynccontextmanager
+    async def mock_connect(scope, receive, send):
+        yield (MagicMock(), MagicMock())
+
+    with patch("app.main.sse_transport.connect_sse", side_effect=mock_connect), \
+         patch("app.main.mcp_server.run", new_callable=AsyncMock):
+        mock_request = MagicMock()
+        mock_request.scope = {"type": "http"}
+        mock_request.receive = AsyncMock()
+        mock_request._send = AsyncMock()
+        await sse_endpoint(mock_request)
