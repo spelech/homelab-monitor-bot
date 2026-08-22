@@ -610,7 +610,13 @@ class StackWatcherManager:
                 "Do not include markdown formatting or backticks."
             )
 
-            ai_output = call_sre_ai_analyst(prompt)
+            ai_output = None
+            try:
+                ai_output = call_sre_ai_analyst(prompt)
+            except Exception as ai_err:
+                logger.error(f"AI SRE analyst invocation failed for stack '{stack_name}': {ai_err}")
+                ai_output = None
+
             root_cause = "Container errors detected during daily SRE audit."
             proposed_fix = ""
             category = "unknown"

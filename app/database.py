@@ -281,6 +281,7 @@ def check_maintenance_status(db=None) -> tuple[bool, str]:
                 visited.add(curr)
             return False
 
+        cached_agent_ts = None
         for pid, cmd in processes:
             cmd_lower = cmd.lower()
 
@@ -299,9 +300,10 @@ def check_maintenance_status(db=None) -> tuple[bool, str]:
             # Check for external coding agents
             if "agy" in cmd_lower or "antigravity-cli" in cmd_lower or "opencode" in cmd_lower:
                 if not is_descendant_of_monitorbot(pid) and pid != my_pid and not is_internal_ai_context():
-                    latest_ts = get_latest_agent_activity_timestamp()
+                    if cached_agent_ts is None:
+                        cached_agent_ts = get_latest_agent_activity_timestamp()
                     # If latest activity was within the last 5 minutes (300s), flag maintenance
-                    if (time.time() - latest_ts) < 300:
+                    if (time.time() - cached_agent_ts) < 300:
                         return True, f"Active AI coding agent (PID {pid}): '{cmd}'"
     except Exception as proc_err:
         # Fallback gracefully if process inspection fails
