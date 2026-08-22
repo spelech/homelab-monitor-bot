@@ -232,22 +232,26 @@ class StackWatcherManager:
 
         manifest_url = f"https://{registry}/v2/{repository}/manifests/{tag}"
 
-        # First try HEAD
-        resp = requests.head(manifest_url, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            digest = resp.headers.get("docker-content-digest") or resp.headers.get(
-                "Docker-Content-Digest"
-            )
-            if digest:
-                return digest
+        try:
+            # First try HEAD
+            resp = requests.head(manifest_url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                digest = resp.headers.get("docker-content-digest") or resp.headers.get(
+                    "Docker-Content-Digest"
+                )
+                if digest:
+                    return digest
 
-        # If HEAD didn't yield digest or wasn't 200, try GET
-        resp = requests.get(manifest_url, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            digest = resp.headers.get("docker-content-digest") or resp.headers.get(
-                "Docker-Content-Digest"
-            )
-            return digest
+            # If HEAD didn't yield digest or wasn't 200, try GET
+            resp = requests.get(manifest_url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                digest = resp.headers.get("docker-content-digest") or resp.headers.get(
+                    "Docker-Content-Digest"
+                )
+                return digest
+        except Exception as net_err:
+            logger.debug(f"Network error fetching digest for {registry}/{repository}:{tag}: {net_err}")
+            return None
         return None
 
     def check_container_update(
@@ -382,7 +386,12 @@ class StackWatcherManager:
             image_tag = c.get("image", "")
             repo_digests = c.get("repo_digests", [])
             image_id = c.get("image_id", "")
-            c_update = self.check_container_update(image_tag, repo_digests, image_id)
+            try:
+                c_update = self.check_container_update(image_tag, repo_digests, image_id)
+            except Exception as update_err:
+                logger.warning(f"Error checking update for container {c.get('name')}: {update_err}")
+                c_update = {"status": "UNKNOWN", "update_available": False}
+
             if c_update.get("update_available"):
                 updates_count += 1
             containers_res.append(
