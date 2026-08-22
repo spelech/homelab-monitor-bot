@@ -1,4 +1,7 @@
 import os
+import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, String, DateTime, Text, ForeignKey, Enum, inspect, text
@@ -11,6 +14,70 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./monitorbot.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+_local_context = threading.local()
+
+def set_internal_ai_context(val: bool = True):
+    _local_context.is_internal_ai = val
+
+def clear_internal_ai_context():
+    _local_context.is_internal_ai = False
+
+def is_internal_ai_context() -> bool:
+    return getattr(_local_context, "is_internal_ai", False)
+
+def is_internal_ai_call() -> bool:
+    return is_internal_ai_context()
+
+@contextmanager
+def internal_ai_context():
+    set_internal_ai_context(True)
+    try:
+        yield
+    finally:
+        clear_internal_ai_context()
+
+def get_latest_agent_activity_timestamp() -> float:
+    """
+    Finds the most recent modification timestamp across all AI coding agent transcripts,
+    session logs, and active turn locks to detect true active work.
+    """
+    latest_ts = 0.0
+
+    # 1. Check active lock file
+    lock_file = "/tmp/monitorbot_active_lock"
+    if os.path.exists(lock_file):
+        try:
+            latest_ts = max(latest_ts, os.path.getmtime(lock_file))
+        except Exception:
+            pass
+
+    # 2. Check Antigravity / Gemini CLI session files and transcripts
+    home_dir = os.path.expanduser("~")
+    search_dirs = [
+        os.path.join(home_dir, ".gemini", "antigravity-cli", "brain"),
+        os.path.join(home_dir, ".gemini", "tmp"),
+        os.path.join(home_dir, ".opencode"),
+        os.path.join(home_dir, ".local", "share", "opencode"),
+    ]
+
+    for s_dir in search_dirs:
+        if os.path.exists(s_dir):
+            try:
+                for root, _, files in os.walk(s_dir):
+                    for file in files:
+                        if file.endswith(".jsonl") or file.endswith(".json"):
+                            fpath = os.path.join(root, file)
+                            try:
+                                mtime = os.path.getmtime(fpath)
+                                if mtime > latest_ts:
+                                    latest_ts = mtime
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+    return latest_ts
 
 class Target(Base):
     __tablename__ = "targets"
@@ -31,8 +98,21 @@ class Incident(Base):
     execution_log = Column(Text, nullable=True)
     deferred_until = Column(DateTime, nullable=True)
     category = Column(String, nullable=True)  # network, reverse_proxy, permissions, settings, database, unknown
+    stack_name = Column(String, nullable=True, index=True)
+    origin = Column(String, default="reactive")  # reactive, sre_daily_audit
     completed_at = Column(DateTime, nullable=True)
     last_notified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class StackAudit(Base):
+    __tablename__ = "stack_audits"
+
+    id = Column(String, primary_key=True, index=True)  # UUID
+    stack_name = Column(String, index=True, nullable=False)
+    status = Column(String, default="HEALTHY")  # HEALTHY, WARNING, ACTION_REQUIRED, DEGRADED, FAILED
+    summary = Column(Text, nullable=True)
+    error_count = Column(String, default="0")
+    containers_checked = Column(String, default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class SystemSetting(Base):
@@ -81,6 +161,10 @@ def init_db():
                 conn.execute(text("ALTER TABLE incidents ADD COLUMN completed_at DATETIME;"))
             if 'last_notified_at' not in columns:
                 conn.execute(text("ALTER TABLE incidents ADD COLUMN last_notified_at DATETIME;"))
+            if 'stack_name' not in columns:
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN stack_name VARCHAR;"))
+            if 'origin' not in columns:
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN origin VARCHAR DEFAULT 'reactive';"))
 
     # Seed default system settings
     db = SessionLocal()
@@ -213,12 +297,14 @@ def check_maintenance_status(db=None) -> tuple[bool, str]:
                     return True, f"Active docker compose: '{cmd}'"
 
             # Check for external coding agents
-            if "agy" in cmd_lower or "antigravity-cli" in cmd_lower:
-                if not is_descendant_of_monitorbot(pid) and pid != my_pid:
-                    return True, f"Active AI coding agent (PID {pid}): '{cmd}'"
+            if "agy" in cmd_lower or "antigravity-cli" in cmd_lower or "opencode" in cmd_lower:
+                if not is_descendant_of_monitorbot(pid) and pid != my_pid and not is_internal_ai_context():
+                    latest_ts = get_latest_agent_activity_timestamp()
+                    # If latest activity was within the last 5 minutes (300s), flag maintenance
+                    if (time.time() - latest_ts) < 300:
+                        return True, f"Active AI coding agent (PID {pid}): '{cmd}'"
     except Exception as proc_err:
         # Fallback gracefully if process inspection fails
         pass
 
     return False, ""
-
