@@ -36,9 +36,24 @@ def override_get_db(db_session):
 
 @pytest.fixture(scope="function", autouse=True)
 def block_external_notifications(monkeypatch, request):
-    """Globally block live NTFY and SMTP/Telegram notifications during test runs, except in dedicated notifier tests."""
+    """Globally block live NTFY, Telegram, and SMTP notifications during all test runs."""
+    from unittest.mock import MagicMock
+    dummy_resp = MagicMock()
+    dummy_resp.status_code = 200
+    dummy_resp.text = "ok"
+    dummy_resp.json.return_value = {"status": "ok"}
+
     if "test_notifier" not in request.node.nodeid:
         monkeypatch.setattr("app.notifier.send_incident_notification", lambda *args, **kwargs: True)
         monkeypatch.setattr("app.notifier.send_followup_notification", lambda *args, **kwargs: True)
         monkeypatch.setattr("app.notifier.send_telegram_notification", lambda *args, **kwargs: True)
         monkeypatch.setattr("app.notifier.send_email_notification", lambda *args, **kwargs: True)
+        try:
+            import app.stack_watcher
+            monkeypatch.setattr(app.stack_watcher, "send_incident_notification", lambda *args, **kwargs: True)
+        except Exception:
+            pass
+
+    # Always mock requests.post so no test can hit real external NTFY/Telegram endpoints
+    monkeypatch.setattr("requests.post", lambda *args, **kwargs: dummy_resp)
+
