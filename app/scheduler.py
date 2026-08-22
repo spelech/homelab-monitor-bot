@@ -201,6 +201,28 @@ def trigger_heartbeat():
     except Exception as e:
         logger.error(f"Failed to send heartbeat notification: {e}")
 
+def run_daily_sre_audit():
+    logger.info("Triggering scheduled daily SRE stack log audit.")
+    db: Session = SessionLocal()
+    try:
+        from app.database import check_maintenance_status
+        is_maint, maint_reason = check_maintenance_status(db)
+        if is_maint:
+            logger.info(f"Skipping daily SRE audit due to maintenance mode: {maint_reason}")
+            return
+
+        from app.stack_watcher import stack_watcher_manager
+        results = stack_watcher_manager.audit_all_stacks()
+        action_required = [r for r in results if r.get("status") == "ACTION_REQUIRED"]
+        logger.info(
+            f"Daily SRE stack audit completed. {len(results)} stack(s) checked, "
+            f"{len(action_required)} action(s) required."
+        )
+    except Exception as e:
+        logger.error(f"Error during daily SRE stack audit: {e}")
+    finally:
+        db.close()
+
 def start_scheduler():
     import os
     from datetime import datetime, timedelta
@@ -217,5 +239,11 @@ def start_scheduler():
     startup_time = datetime.now() + timedelta(seconds=5)
     scheduler.add_job(trigger_heartbeat, "date", run_date=startup_time)
     
+    # Run daily SRE log review (default 03:00 UTC, configurable via SRE_AUDIT_CRON_HOUR / SRE_AUDIT_CRON_MINUTE)
+    audit_hour = int(os.getenv("SRE_AUDIT_CRON_HOUR", "3"))
+    audit_minute = int(os.getenv("SRE_AUDIT_CRON_MINUTE", "0"))
+    scheduler.add_job(run_daily_sre_audit, "cron", hour=audit_hour, minute=audit_minute)
+
     scheduler.start()
-    logger.info(f"Background Scheduler started (checking every 60s, heartbeat every {heartbeat_hours}h).")
+    logger.info(f"Background Scheduler started (checking every 60s, heartbeat every {heartbeat_hours}h, SRE audit at {audit_hour:02d}:{audit_minute:02d} UTC).")
+

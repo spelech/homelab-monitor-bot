@@ -4,13 +4,74 @@ Discovers stacks and containers directly from the local Docker daemon socket,
 and checks remote image registries for updates with 12-hour TTL caching.
 """
 
+import os
+import re
+import json
+import uuid
 import logging
 import time
+import subprocess
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 import docker
 import requests
+from sqlalchemy.orm import Session
+
+from app.database import SessionLocal, Incident, StackAudit, Target
 
 logger = logging.getLogger("StackWatcher")
+
+ERROR_LOG_PATTERNS = re.compile(
+    r"(?i)\b(error|fatal|panic|exception|traceback|critical|fail|failed|unhandled|refused|warn|warning)\b"
+)
+
+
+def call_sre_ai_analyst(prompt: str) -> str:
+    """
+    Executes AI SRE analysis using configured AI executor (opencode server HTTP API or CLI / agy CLI).
+    """
+    current_executor = os.getenv("AI_EXECUTOR", "opencode").lower()
+    output = None
+    if current_executor == "opencode":
+        try:
+            from app.investigator import call_opencode_server
+            output = call_opencode_server(prompt)
+        except Exception as api_err:
+            logger.warning(f"opencode HTTP API failed ({api_err}), falling back to CLI subprocess...")
+            opencode_path = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.17.0/bin/opencode")
+            provider_id = os.getenv("OPENCODE_PROVIDER_ID", "litellm")
+            model_id = os.getenv("OPENCODE_MODEL_ID", "qwen3.5-flash-02-23")
+            cmd = [opencode_path, "run", "--auto", "--model", f"{provider_id}/{model_id}", prompt]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                output = result.stdout
+            else:
+                raise RuntimeError(f"opencode CLI error: {result.stderr}")
+    else:
+        agy_path = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
+        cmd = [agy_path, "--model", "gemini-3.5-flash-medium", "--dangerously-skip-permissions", "--print", prompt]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if result.returncode == 0:
+            output = result.stdout
+        else:
+            raise RuntimeError(f"agy CLI error: {result.stderr}")
+
+    try:
+        from app.ai_usage import record_ai_usage
+        model_name = os.getenv("OPENCODE_MODEL_ID", "qwen3.5-flash-02-23") if current_executor == "opencode" else "gemini-3.5-flash-medium"
+        record_ai_usage(
+            incident_id=None,
+            executor=current_executor,
+            model_id=model_name,
+            prompt_text=prompt,
+            completion_text=output or "",
+            status="SUCCESS" if output else "FAILED"
+        )
+    except Exception:
+        pass
+
+    return output
+
 
 
 def parse_image_reference(image_str: str) -> Dict[str, str]:
@@ -425,6 +486,254 @@ class StackWatcherManager:
                 return stack
         return None
 
+    def audit_stack_logs(self, stack_name: str, db: Optional[Session] = None) -> Dict[str, Any]:
+        """
+        Collects logs for all containers in the given stack, filters 24h error/warning lines,
+        runs AI triage to determine if an issue is actionable, creates PENDING_USER Incidents
+        with origin='sre_daily_audit' and StackAudit records, and triggers push notifications.
+        """
+        client = self._get_client()
+        if client is None:
+            return {
+                "stack_name": stack_name,
+                "status": "UNKNOWN",
+                "error_count": 0,
+                "containers_checked": 0,
+                "summary": "Docker daemon unavailable",
+            }
+
+        try:
+            all_containers = client.containers.list(all=True)
+        except Exception as e:
+            logger.error(f"Error querying containers for stack audit '{stack_name}': {e}")
+            return {
+                "stack_name": stack_name,
+                "status": "UNKNOWN",
+                "error_count": 0,
+                "containers_checked": 0,
+                "summary": f"Error querying Docker: {e}",
+            }
+
+        # Filter containers belonging to stack_name
+        stack_containers = []
+        for c in all_containers:
+            attrs = getattr(c, "attrs", {}) or {}
+            labels = attrs.get("Config", {}).get("Labels", {}) or {}
+            project = labels.get("com.docker.compose.project")
+            c_name = getattr(c, "name", "") or attrs.get("Name", "").lstrip("/")
+
+            # Skip monitorbot container to prevent loops
+            if "monitorbot" in c_name:
+                continue
+
+            if project == stack_name:
+                stack_containers.append(c)
+            elif stack_name == "standalone" and not project:
+                stack_containers.append(c)
+
+        close_db_on_exit = False
+        if db is None:
+            db = SessionLocal()
+            close_db_on_exit = True
+
+        try:
+            if not stack_containers:
+                return {
+                    "stack_name": stack_name,
+                    "status": "HEALTHY",
+                    "error_count": 0,
+                    "containers_checked": 0,
+                    "summary": f"No containers found for stack '{stack_name}'.",
+                }
+
+            container_errors: Dict[str, List[str]] = {}
+            total_error_count = 0
+
+            for c in stack_containers:
+                c_name = getattr(c, "name", "") or getattr(c, "id", "unknown")
+                try:
+                    raw_logs = c.logs(tail=500)
+                    if isinstance(raw_logs, bytes):
+                        log_text = raw_logs.decode("utf-8", errors="replace")
+                    else:
+                        log_text = str(raw_logs)
+
+                    matched_lines = []
+                    for line in log_text.splitlines():
+                        if ERROR_LOG_PATTERNS.search(line):
+                            matched_lines.append(line.strip())
+
+                    if matched_lines:
+                        container_errors[c_name] = matched_lines
+                        total_error_count += len(matched_lines)
+                except Exception as log_err:
+                    logger.warning(f"Failed to fetch logs for container '{c_name}': {log_err}")
+
+            if total_error_count == 0:
+                summary = f"Stack '{stack_name}' is healthy. No critical errors detected across {len(stack_containers)} container(s)."
+                audit = StackAudit(
+                    id=str(uuid.uuid4()),
+                    stack_name=stack_name,
+                    status="HEALTHY",
+                    summary=summary,
+                    error_count="0",
+                    containers_checked=str(len(stack_containers)),
+                    created_at=datetime.utcnow(),
+                )
+                db.add(audit)
+                db.commit()
+
+                return {
+                    "stack_name": stack_name,
+                    "status": "HEALTHY",
+                    "error_count": 0,
+                    "containers_checked": len(stack_containers),
+                    "summary": summary,
+                }
+
+            # Build error log snippet for AI analysis
+            log_snippets = []
+            for c_name, lines in container_errors.items():
+                snippet = f"=== Container: {c_name} (Errors/Warnings: {len(lines)}) ===\n" + "\n".join(lines[-30:])
+                log_snippets.append(snippet)
+            aggregated_errors = "\n\n".join(log_snippets)
+
+            prompt = (
+                f"You are an SRE bot reviewing daily container error logs for Docker stack '{stack_name}'.\n"
+                f"The following error/warning lines were detected:\n\n{aggregated_errors}\n\n"
+                "Analyze the errors and determine if there is an actionable root cause requiring human intervention or remediation. "
+                "Output ONLY valid JSON with exactly four keys: "
+                "'root_cause' (string explaining the issue), "
+                "'proposed_fix' (string containing valid bash commands or remediation steps), "
+                "'category' (string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'), and "
+                "'action_required' (boolean: true if actionable issue requiring fix/investigation, false if benign/informational/transient warning). "
+                "Do not include markdown formatting or backticks."
+            )
+
+            ai_output = call_sre_ai_analyst(prompt)
+            root_cause = "Container errors detected during daily SRE audit."
+            proposed_fix = ""
+            category = "unknown"
+            action_required = True
+
+            if ai_output:
+                try:
+                    json_match = re.search(r"\{.*\}", ai_output, re.DOTALL)
+                    if json_match:
+                        parsed = json.loads(json_match.group(0))
+                        root_cause = parsed.get("root_cause", root_cause)
+                        proposed_fix = parsed.get("proposed_fix", proposed_fix)
+                        category = parsed.get("category", category)
+                        action_required = bool(parsed.get("action_required", True))
+                except Exception as parse_e:
+                    logger.warning(f"Failed to parse AI output for stack '{stack_name}': {parse_e}")
+
+            if action_required:
+                primary_target_id = list(container_errors.keys())[0] if container_errors else stack_name
+
+                # Ensure Target exists
+                target = db.query(Target).filter(Target.id == primary_target_id).first()
+                if not target:
+                    target = Target(id=primary_target_id, type="docker", ignored_until=None)
+                    db.add(target)
+                    db.commit()
+                    db.refresh(target)
+
+                incident_id = str(uuid.uuid4())
+                incident = Incident(
+                    id=incident_id,
+                    target_id=primary_target_id,
+                    status="PENDING_USER",
+                    error_logs=aggregated_errors,
+                    root_cause=root_cause,
+                    proposed_fix=proposed_fix,
+                    category=str(category).lower(),
+                    stack_name=stack_name,
+                    origin="sre_daily_audit",
+                    created_at=datetime.utcnow(),
+                )
+                db.add(incident)
+
+                audit = StackAudit(
+                    id=str(uuid.uuid4()),
+                    stack_name=stack_name,
+                    status="ACTION_REQUIRED",
+                    summary=root_cause,
+                    error_count=str(total_error_count),
+                    containers_checked=str(len(stack_containers)),
+                    created_at=datetime.utcnow(),
+                )
+                db.add(audit)
+                db.commit()
+
+                # Trigger notification
+                try:
+                    from app.notifier import send_incident_notification
+                    send_incident_notification(incident.id)
+                except Exception as notif_err:
+                    logger.error(f"Failed to send incident notification for SRE audit {incident.id}: {notif_err}")
+
+                return {
+                    "stack_name": stack_name,
+                    "status": "ACTION_REQUIRED",
+                    "incident_id": incident.id,
+                    "error_count": total_error_count,
+                    "containers_checked": len(stack_containers),
+                    "root_cause": root_cause,
+                    "proposed_fix": proposed_fix,
+                    "category": category,
+                    "summary": root_cause,
+                }
+            else:
+                audit = StackAudit(
+                    id=str(uuid.uuid4()),
+                    stack_name=stack_name,
+                    status="WARNING",
+                    summary=root_cause or "Non-actionable / transient warnings detected.",
+                    error_count=str(total_error_count),
+                    containers_checked=str(len(stack_containers)),
+                    created_at=datetime.utcnow(),
+                )
+                db.add(audit)
+                db.commit()
+
+                return {
+                    "stack_name": stack_name,
+                    "status": "WARNING",
+                    "incident_id": None,
+                    "error_count": total_error_count,
+                    "containers_checked": len(stack_containers),
+                    "summary": root_cause,
+                    "root_cause": root_cause,
+                }
+
+        finally:
+            if close_db_on_exit:
+                db.close()
+
+    def audit_all_stacks(self) -> List[Dict[str, Any]]:
+        """
+        Audits logs across all discovered Docker Compose stacks on the host.
+        """
+        stacks = self.discover_stacks()
+        results = []
+        for stack in stacks:
+            stack_name = stack["name"]
+            try:
+                res = self.audit_stack_logs(stack_name)
+                results.append(res)
+            except Exception as e:
+                logger.error(f"Error auditing stack '{stack_name}': {e}")
+                results.append({
+                    "stack_name": stack_name,
+                    "status": "FAILED",
+                    "error": str(e),
+                    "error_count": 0,
+                    "containers_checked": 0,
+                })
+        return results
+
 
 # Global singleton instance
 stack_watcher_manager = StackWatcherManager()
+
