@@ -125,31 +125,14 @@ def run_investigation_logic(db: Session, incident: Incident):
     except Exception as q_err:
         logger.error(f"Error querying Qdrant memory: {q_err}")
 
-    # 3. Construct prompt for agy
-    if is_systemd:
-        prompt = (
-            f"Systemd service failure detected on '{incident.target_id}'.\n"
-            f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
-            "You are an SRE bot. Focus strictly on diagnosing this systemd service failure by inspecting its configuration, journalctl logs, and service status. "
-            "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
-            "Output ONLY valid JSON with exactly three keys: "
-            "'root_cause' (a string explaining the issue), "
-            "'proposed_fix' (a string containing valid bash commands to fix it), and "
-            "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
-            "Do not include markdown formatting or backticks."
-        )
-    else:
-        prompt = (
-            f"Container failure detected on '{incident.target_id}'.\n"
-            f"Error Logs:\n{incident.error_logs}{historical_context}\n\n"
-            "You are an SRE bot. Focus strictly on diagnosing this container failure by inspecting its configuration, files, and Docker logs. "
-            "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
-            "Output ONLY valid JSON with exactly three keys: "
-            "'root_cause' (a string explaining the issue), "
-            "'proposed_fix' (a string containing valid bash commands to fix it), and "
-            "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
-            "Do not include markdown formatting or backticks."
-        )
+    # 3. Construct prompt using centralized homelab rules and Docker context
+    from app.prompts import build_investigator_prompt
+    prompt = build_investigator_prompt(
+        target_id=incident.target_id,
+        error_logs=incident.error_logs,
+        historical_context=historical_context,
+        is_systemd=is_systemd
+    )
 
     # 4. Run AI executor (HTTP API or CLI Subprocess)
     output = None

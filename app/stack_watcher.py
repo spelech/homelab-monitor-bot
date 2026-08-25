@@ -607,17 +607,8 @@ class StackWatcherManager:
                 log_snippets.append(snippet)
             aggregated_errors = "\n\n".join(log_snippets)
 
-            prompt = (
-                f"You are an SRE bot reviewing daily container error logs for Docker stack '{stack_name}'.\n"
-                f"The following error/warning lines were detected:\n\n{aggregated_errors}\n\n"
-                "Analyze the errors and determine if there is an actionable root cause requiring human intervention or remediation. "
-                "Output ONLY valid JSON with exactly four keys: "
-                "'root_cause' (string explaining the issue), "
-                "'proposed_fix' (string containing valid bash commands or remediation steps), "
-                "'category' (string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'), and "
-                "'action_required' (boolean: true if actionable issue requiring fix/investigation, false if benign/informational/transient warning). "
-                "Do not include markdown formatting or backticks."
-            )
+            from app.prompts import build_sre_audit_prompt
+            prompt = build_sre_audit_prompt(stack_name, aggregated_errors)
 
             ai_output = None
             try:

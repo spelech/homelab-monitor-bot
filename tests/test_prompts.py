@@ -17,21 +17,20 @@ from app.database import Incident, Target
 
 
 # ---------------------------------------------------------------------------
-# Helper: rebuild the prompt exactly as investigator.py does it
+# Import prompt builder from app.prompts
 # ---------------------------------------------------------------------------
+from app.prompts import (
+    build_investigator_prompt,
+    build_sre_audit_prompt,
+    HOMELAB_SYSTEM_RULES,
+    BENIGN_LOG_GUIDELINES,
+    REMEDIATION_PLAN_CONTRACT,
+    get_stack_docker_context,
+    get_container_docker_context,
+)
 
 def build_prompt(target_id: str, error_logs: str, historical_context: str = "") -> str:
-    return (
-        f"Container failure detected on '{target_id}'.\n"
-        f"Error Logs:\n{error_logs}{historical_context}\n\n"
-        "You are an SRE bot. Focus strictly on diagnosing this container failure by inspecting its configuration, files, and Docker logs. "
-        "Do NOT research, grep, or search for the 'agy' command or its flags (like --dangerously-skip-permissions) on the system. "
-        "Output ONLY valid JSON with exactly three keys: "
-        "'root_cause' (a string explaining the issue), "
-        "'proposed_fix' (a string containing valid bash commands to fix it), and "
-        "'category' (a string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'). "
-        "Do not include markdown formatting or backticks."
-    )
+    return build_investigator_prompt(target_id, error_logs, historical_context)
 
 
 def extract_json(output: str) -> dict | None:
@@ -50,7 +49,7 @@ class TestPromptConstruction:
 
     def test_basic_prompt_contains_target_id(self):
         prompt = build_prompt("kopia", "failed to open /gdrive/Backups/kopia")
-        assert "Container failure detected on 'kopia'" in prompt
+        assert "Failure detected on container 'kopia'" in prompt
 
     def test_prompt_contains_error_logs(self):
         logs = "Error: cannot stat /gdrive/Backups/kopia: no such file or directory"
@@ -65,7 +64,7 @@ class TestPromptConstruction:
         """The prompt must instruct the agent NOT to research the agy binary."""
         prompt = build_prompt("kopia", "some logs")
         assert "Do NOT research, grep, or search for the 'agy' command" in prompt
-        assert "--dangerously-skip-permissions" in prompt  # mentioned as an example to avoid
+        assert "--dangerously-skip-permissions" in prompt
 
     def test_prompt_requests_json_only(self):
         prompt = build_prompt("kopia", "some logs")
@@ -89,9 +88,36 @@ class TestPromptConstruction:
         assert "Historical context" not in prompt
 
     def test_prompt_contains_all_valid_categories(self):
-        prompt = build_prompt("nginx", "upstream connection refused")
+        prompt = build_prompt("caddy", "upstream connection refused")
         for cat in ["network", "reverse_proxy", "permissions", "settings", "database", "unknown"]:
             assert cat in prompt
+
+    def test_prompt_contains_homelab_architecture_context(self):
+        prompt = build_prompt("tinyauth", "connection error")
+        assert "Caddy is the universal reverse proxy" in prompt
+        assert "TinyAuth" in prompt
+        assert "10.0.0.10" in prompt
+        assert "http://10.0.0.10:8026/sse" in prompt
+        assert "http://10.0.0.10:8021/sse" in prompt  # ContextCortex fallback
+
+    def test_prompt_contains_benign_noise_guidelines(self):
+        prompt = build_prompt("termix", "ECONNRESET")
+        assert "TinyAuth 401s" in prompt
+        assert "Sleeping / Standby IoT & Media Devices" in prompt
+        assert "Terminal / SSH Disconnects" in prompt
+        assert "Whats-Up-Docker" in prompt
+
+    def test_prompt_contains_multistep_remediation_plan_contract(self):
+        prompt = build_prompt("sonarr", "disk full")
+        assert "multi-step remediation plan" in prompt
+        assert "Do NOT use placeholder text" in prompt
+
+    def test_sre_audit_prompt_construction(self):
+        audit_prompt = build_sre_audit_prompt("webservices", "=== Container: tinyauth ===\nWRN 401")
+        assert "Daily SRE Log Audit for Stack: 'webservices'" in audit_prompt
+        assert "'action_required'" in audit_prompt
+        assert "WRN 401" in audit_prompt
+        assert "ContextCortex" in audit_prompt
 
 
 # ===========================================================================

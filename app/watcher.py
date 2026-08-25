@@ -139,12 +139,13 @@ def process_failure(docker_client, container_name: str, container_id: str, reaso
         # 4. Fetch logs
         error_logs = ""
         try:
-            container = docker_client.containers.get(container_id)
+            target_identifier = container_id or container_name
+            container = docker_client.containers.get(target_identifier)
             # Fetch last 50 lines of logs
             logs_bytes = container.logs(tail=50, stdout=True, stderr=True)
             error_logs = logs_bytes.decode("utf-8", errors="replace")
         except Exception as log_err:
-            error_logs = f"Could not retrieve container logs: {log_err}"
+            error_logs = f"Could not retrieve container logs for '{container_name}': {log_err}"
 
         # Combine failure reason and logs
         full_logs = f"Reason: {reason}\n\n--- Container Logs ---\n{error_logs}"
