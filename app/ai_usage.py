@@ -9,9 +9,13 @@ logger = logging.getLogger("AIUsage")
 
 # Pricing table per 1M tokens ($ USD)
 MODEL_RATES = {
+    "qwen3.7-flash": {"input": 0.05, "output": 0.15},
     "qwen3.5-flash-02-23": {"input": 0.10, "output": 0.20},
     "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
     "gemini-3.5-flash-medium": {"input": 0.15, "output": 0.60},
+    "Gemini 3.5 Flash (Medium)": {"input": 0.15, "output": 0.60},
+    "Gemini 3.7 Flash (High)": {"input": 0.25, "output": 1.00},
+    "gemini-3.5-flash-lite": {"input": 0.075, "output": 0.30},
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "default": {"input": 0.10, "output": 0.25}
 }

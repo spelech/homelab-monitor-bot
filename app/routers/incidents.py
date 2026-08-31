@@ -258,3 +258,19 @@ async def handle_webhook(
         return {"status": "ok", "detail": "Remediation triggered"}
 
     raise HTTPException(status_code=400, detail=f"Unknown action '{action_name}'")
+
+
+@router.get("/incidents/{incident_id}/transcript")
+def get_incident_transcript(incident_id: str, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    from app.transcript_logger import get_transcript
+    events = get_transcript(incident_id)
+    return {
+        "incident_id": incident_id,
+        "target_id": incident.target_id,
+        "events": events
+    }
+

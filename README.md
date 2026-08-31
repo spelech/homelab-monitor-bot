@@ -8,7 +8,7 @@ AutoHeal is an event-driven Python application designed to run natively on a Lin
 
 - **Non-Polling Docker Monitor:** Listens directly to the Docker daemon event stream for container crashes (`die` events with non-zero exit codes) or container `health_status: unhealthy` events.
 - **Systemd Host Service Monitoring:** Polls host services (like `plexmediaserver`, `adguardhome`, or `ssh`) via `systemctl` periodically to detect failures outside container scopes.
-- **Autonomous AI Investigator:** Invokes local AI engines (`opencode` via HTTP API `:8447` or `agy` CLI) in a subprocess to dynamically analyze container logs and journalctl streams, identify root causes, and propose bash remediation scripts.
+- **Autonomous AI Investigator:** Invokes local AI engines (`opencode` via HTTP API `:4096` or `agy` CLI) in a subprocess to dynamically analyze container logs and journalctl streams, identify root causes, and propose bash remediation scripts.
 - **Modern React + TypeScript SPA Dashboard:** Built with Vite and structured Light/Dark Green CSS theme, serving real-time SRE incident queues, 1-click approvals, canary audit trees, token analytics, and system maintenance controls.
 - **Autonomous Container Upgrades Engine:** Orchestrates stack-by-stack or full-infrastructure container updates (`docker compose pull -> up -> prune`), runs 4-phase Canary Health Audits, and immediately triggers AI self-healing if a container crashes post-upgrade.
 - **Loop Prevention (Circuit Breaker):** If a target fails $\ge 2$ times in a rolling 60-minute window, automatic fixes are blocked, and a critical alert is dispatched to prevent resource-exhausting restart loops.
@@ -137,7 +137,7 @@ WEBHOOK_BASE_URL=https://monitorbot.wileyriley.com
 WEBHOOK_TOKEN=your_secure_webhook_token
 PORT=9013
 HOST=0.0.0.0
-OPENCODE_SERVER_URL=http://localhost:8447
+OPENCODE_SERVER_URL=http://localhost:4096
 OPENCODE_PATH=/usr/local/bin/opencode
 AGY_PATH=/home/steve/.local/bin/agy
 ```

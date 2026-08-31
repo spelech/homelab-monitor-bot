@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=steve
 WorkingDirectory=/home/steve
-ExecStart=/home/steve/.nvm/versions/node/v22.17.0/bin/opencode serve --port 8447 --hostname 0.0.0.0
+ExecStart=/home/steve/.nvm/versions/node/v22.17.0/bin/opencode serve --port 4096
 Restart=always
 RestartSec=5
 

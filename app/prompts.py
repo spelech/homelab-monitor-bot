@@ -15,7 +15,7 @@ HOMELAB_SYSTEM_RULES = """
 === Homelab Infrastructure Architecture & Rules ===
 1. Server Host IP: 10.0.0.10 (Linux host running Docker Compose & systemd).
 2. Stack Root Paths: All Docker Compose stacks are located in '/containers/<category>/docker-compose.yaml'.
-3. Reverse Proxy: Caddy is the universal reverse proxy. Dynamic routes are managed via container labels ('caddy=...'), and static routes live in '/containers/webservices/caddy/Caddyfile'. NOTE: Nginx / SWAG is deprecated and NOT used.
+3. Reverse Proxy: Caddy is the universal reverse proxy. Dynamic routes are managed via container labels ('caddy=...'), and static routes live in '/containers/webservices/caddy/Caddyfile'. NOTE: Nginx / SWAG is deprecated and NOT used. NEVER generate Nginx directives (such as 'proxy_buffering', 'proxy_read_timeout', 'proxy_pass', etc.) or search deprecated Nginx paths.
 4. Authentication & SSO: TinyAuth ('tinyauth.apps.*' labels) and PocketID provide forward-auth and OIDC.
 5. Local DNS: AdGuard Home at 10.0.0.2 (pi@adguard). Public wildcard is '*.wileyriley.com'.
 6. MCP Router & Knowledge Hub:
@@ -27,12 +27,15 @@ BENIGN_LOG_GUIDELINES = """
 === Benign Homelab Noise & False-Positive Guidelines ===
 Mark 'action_required': false (and state benign in 'root_cause') for any of the following normal homelab events:
 - TinyAuth 401s: 'status=401' on '/api/auth/' or client auth checks (normal unauthenticated browser/crawler requests before user login).
+- OpenIddict / MCP Probes: Unauthenticated 401 challenge logs during token negotiation.
+- MCP SSE Reconnects: Transient SSE stream closes with 'idle connection timeout (normal)' in LibreChat, OpenCode, or MCP clients.
 - Proxied Internal Services: Warnings about running without internal basic auth or TLS (e.g. Glances, Portainer) when they are intentionally protected behind TinyAuth and Caddy.
 - Sleeping / Standby IoT & Media Devices: Connection timeouts to smart TVs (e.g. Android TV at 10.0.0.230, Apple TV/HomeKit at 10.0.0.39) or battery sensors in Home Assistant / ESPHome when the device is powered off.
 - Terminal / SSH Disconnects: Web terminal or SSH client disconnects ('ECONNRESET', 'SIGPIPE' in Termix, Guacamole, Code-Server) when users close browser tabs.
 - Local Custom Images in WUD: Whats-Up-Docker logging '404 NAME_UNKNOWN' for locally built images (e.g. custom dev or pipeline containers) not hosted on Docker Hub.
 - Transient DB Startup Synchronization: Application containers logging 'FATAL: the database system is starting up' during initial container boot before Postgres/MySQL is ready.
 - Deprecation Notices: Informational deprecation warnings (e.g. MySQL 'mysql_native_password', Node deprecation warnings).
+- External Scraper Rate Limits: Search engine 403s or CAPTCHA challenges in SearXNG from public rate limits.
 """
 
 REMEDIATION_PLAN_CONTRACT = """
@@ -40,6 +43,8 @@ REMEDIATION_PLAN_CONTRACT = """
 - 'proposed_fix' may be a single bash command OR a structured, multi-step remediation plan with sequential commands, compose commands, and verification steps.
 - Always use exact, real paths (e.g., 'cd /containers/<stack> && docker compose restart <service>').
 - Do NOT use placeholder text (e.g., '<target-host-ip>', 'example.com', '<id>').
+- CRITICAL GUARDRAIL: NEVER generate raw SQL 'DELETE', 'DROP', or 'UPDATE' commands on application SQLite or PostgreSQL databases (e.g., Seerr, Plex, Home Assistant DBs) to fix metadata or scraping errors. Application databases must only be managed via their official web UIs or container restarts.
+- CRITICAL GUARDRAIL: NEVER edit compose files using brittle regex/sed commands (e.g., modifying auth flags via sed). Use clean docker compose restart/pull or proper manual configuration instructions.
 - Do NOT output markdown formatting, backticks, or fences in the raw JSON keys.
 """
 

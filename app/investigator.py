@@ -11,17 +11,26 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from app.database import SessionLocal, Incident, Target
 from app.qdrant_mem import qdrant_mem
+from app.transcript_logger import log_transcript_event
 
 load_dotenv()
 
 logger = logging.getLogger("Investigator")
 
+_opencode_model_env = os.getenv("OPENCODE_MODEL", "")
+if "/" in _opencode_model_env:
+    _default_provider, _default_model = _opencode_model_env.split("/", 1)
+else:
+    _default_provider = "litellm"
+    _default_model = _opencode_model_env or "qwen3.7-flash"
+
 AI_EXECUTOR = os.getenv("AI_EXECUTOR", "opencode").lower()
 AGY_PATH = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
+AGY_MODEL = os.getenv("AGY_MODEL", "Gemini 3.5 Flash (Medium)")
 OPENCODE_PATH = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.17.0/bin/opencode")
-OPENCODE_SERVER_URL = os.getenv("OPENCODE_SERVER_URL", "http://localhost:8447")
-OPENCODE_PROVIDER_ID = os.getenv("OPENCODE_PROVIDER_ID", "litellm")
-OPENCODE_MODEL_ID = os.getenv("OPENCODE_MODEL_ID", "qwen3.5-flash-02-23")
+OPENCODE_SERVER_URL = os.getenv("OPENCODE_SERVER_URL", "http://localhost:4096")
+OPENCODE_PROVIDER_ID = os.getenv("OPENCODE_PROVIDER_ID", _default_provider)
+OPENCODE_MODEL_ID = os.getenv("OPENCODE_MODEL_ID", _default_model)
 
 def call_opencode_server(prompt: str, provider_id: str = None, model_id: str = None, timeout: int = 180) -> str:
     """Call headless opencode serve HTTP API."""
@@ -134,6 +143,13 @@ def run_investigation_logic(db: Session, incident: Incident):
         is_systemd=is_systemd
     )
 
+    log_transcript_event(incident_id, "PROMPT_GENERATED", {
+        "target_id": incident.target_id,
+        "is_systemd": is_systemd,
+        "prompt": prompt,
+        "historical_context": historical_context
+    })
+
     # 4. Run AI executor (HTTP API or CLI Subprocess)
     output = None
     current_executor = os.getenv("AI_EXECUTOR", "opencode").lower()
@@ -153,16 +169,18 @@ def run_investigation_logic(db: Session, incident: Incident):
                     incident.status = "FAILED"
                     incident.execution_log = f"opencode CLI error: {result.stderr}"
                     db.commit()
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": result.stderr})
                     return
             except Exception as cli_err:
                 logger.error(f"opencode CLI error: {cli_err}")
                 incident.status = "FAILED"
                 incident.execution_log = f"opencode error: {cli_err}"
                 db.commit()
+                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
                 return
     else:
-        logger.info(f"Calling agy CLI at {AGY_PATH} using gemini-3.5-flash-medium for incident {incident_id}...")
-        cmd = [AGY_PATH, "--model", "gemini-3.5-flash-medium", "--dangerously-skip-permissions", "--print", prompt]
+        logger.info(f"Calling agy CLI at {AGY_PATH} using {AGY_MODEL} for incident {incident_id}...")
+        cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
             if result.returncode != 0:
@@ -170,6 +188,7 @@ def run_investigation_logic(db: Session, incident: Incident):
                 incident.status = "FAILED"
                 incident.execution_log = f"agy error: {result.stderr}"
                 db.commit()
+                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": result.stderr})
                 return
             output = result.stdout
         except Exception as agy_err:
@@ -177,14 +196,21 @@ def run_investigation_logic(db: Session, incident: Incident):
             incident.status = "FAILED"
             incident.execution_log = f"agy error: {agy_err}"
             db.commit()
+            log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(agy_err)})
             return
 
     logger.info(f"Received output from {current_executor}: {output}")
 
+    log_transcript_event(incident_id, "AI_THINKING_RAW", {
+        "raw_output": output,
+        "executor": current_executor,
+        "model_id": OPENCODE_MODEL_ID if current_executor == "opencode" else AGY_MODEL
+    })
+
     # Record AI Usage & Spend metrics
     try:
         from app.ai_usage import record_ai_usage
-        model_name = OPENCODE_MODEL_ID if current_executor == "opencode" else "gemini-3.5-flash-medium"
+        model_name = OPENCODE_MODEL_ID if current_executor == "opencode" else AGY_MODEL
         record_ai_usage(
             incident_id=incident_id,
             executor=current_executor,
@@ -239,6 +265,13 @@ def run_investigation_logic(db: Session, incident: Incident):
         )
 
         auto_approve = autopilot_enabled or (external_domain_down and is_caddy_issue)
+
+        log_transcript_event(incident_id, "DIAGNOSIS_PARSED", {
+            "root_cause": root_cause,
+            "proposed_fix": proposed_fix,
+            "category": category,
+            "auto_approve": auto_approve
+        })
 
         if auto_approve:
             reason = "Autopilot enabled" if autopilot_enabled else "External domains unreachable & reverse proxy issue detected"

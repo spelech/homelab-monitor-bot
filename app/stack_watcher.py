@@ -11,19 +11,39 @@ import uuid
 import logging
 import time
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 import docker
 import requests
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, Incident, StackAudit, Target
+from app.transcript_logger import log_transcript_event
 
 logger = logging.getLogger("StackWatcher")
 
 ERROR_LOG_PATTERNS = re.compile(
     r"(?i)\b(error|fatal|panic|exception|traceback|critical|fail|failed|unhandled|refused|warn|warning)\b"
 )
+
+BENIGN_FILTER_PATTERNS = [
+    re.compile(r"node\s+--trace-deprecation", re.IGNORECASE),
+    re.compile(r"OpenIddict\.Validation\.AspNetCore was not authenticated", re.IGNORECASE),
+    re.compile(r"Transport error \(transient, will reconnect\): SSE connection closed", re.IGNORECASE),
+    re.compile(r"status=401 stream=http", re.IGNORECASE),
+    re.compile(r"WARNING Memory overcommit must be enabled", re.IGNORECASE),
+    re.compile(r"Task documents\.tasks\.train_classifier.*ValueError\('No training data available\.'\)", re.IGNORECASE),
+    re.compile(r"Plugin mysql_native_password reported:.*deprecated", re.IGNORECASE),
+    re.compile(r"ERROR qdrant::common::telemetry_reporting: Failed to report telemetry", re.IGNORECASE),
+]
+
+
+def is_benign_noise(line: str) -> bool:
+    """Checks if a log line matches known benign non-actionable homelab noise."""
+    for pat in BENIGN_FILTER_PATTERNS:
+        if pat.search(line):
+            return True
+    return False
 
 
 def call_sre_ai_analyst(prompt: str) -> str:
@@ -38,18 +58,16 @@ def call_sre_ai_analyst(prompt: str) -> str:
             output = call_opencode_server(prompt)
         except Exception as api_err:
             logger.warning(f"opencode HTTP API failed ({api_err}), falling back to CLI subprocess...")
-            opencode_path = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.17.0/bin/opencode")
-            provider_id = os.getenv("OPENCODE_PROVIDER_ID", "litellm")
-            model_id = os.getenv("OPENCODE_MODEL_ID", "qwen3.5-flash-02-23")
-            cmd = [opencode_path, "run", "--auto", "--model", f"{provider_id}/{model_id}", prompt]
+            from app.investigator import OPENCODE_PATH, OPENCODE_PROVIDER_ID, OPENCODE_MODEL_ID
+            cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
             if result.returncode == 0:
                 output = result.stdout
             else:
                 raise RuntimeError(f"opencode CLI error: {result.stderr}")
     else:
-        agy_path = os.getenv("AGY_PATH", "/home/steve/.local/bin/agy")
-        cmd = [agy_path, "--model", "gemini-3.5-flash-medium", "--dangerously-skip-permissions", "--print", prompt]
+        from app.investigator import AGY_PATH, AGY_MODEL
+        cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if result.returncode == 0:
             output = result.stdout
@@ -58,7 +76,8 @@ def call_sre_ai_analyst(prompt: str) -> str:
 
     try:
         from app.ai_usage import record_ai_usage
-        model_name = os.getenv("OPENCODE_MODEL_ID", "qwen3.5-flash-02-23") if current_executor == "opencode" else "gemini-3.5-flash-medium"
+        from app.investigator import OPENCODE_MODEL_ID, AGY_MODEL
+        model_name = OPENCODE_MODEL_ID if current_executor == "opencode" else AGY_MODEL
         record_ai_usage(
             incident_id=None,
             executor=current_executor,
@@ -557,11 +576,12 @@ class StackWatcherManager:
 
             container_errors: Dict[str, List[str]] = {}
             total_error_count = 0
+            since_ts = int((datetime.utcnow() - timedelta(hours=24)).timestamp())
 
             for c in stack_containers:
                 c_name = getattr(c, "name", "") or getattr(c, "id", "unknown")
                 try:
-                    raw_logs = c.logs(tail=500)
+                    raw_logs = c.logs(tail=500, since=since_ts)
                     if isinstance(raw_logs, bytes):
                         log_text = raw_logs.decode("utf-8", errors="replace")
                     else:
@@ -569,7 +589,7 @@ class StackWatcherManager:
 
                     matched_lines = []
                     for line in log_text.splitlines():
-                        if ERROR_LOG_PATTERNS.search(line):
+                        if ERROR_LOG_PATTERNS.search(line) and not is_benign_noise(line):
                             matched_lines.append(line.strip())
 
                     if matched_lines:
@@ -579,7 +599,7 @@ class StackWatcherManager:
                     logger.warning(f"Failed to fetch logs for container '{c_name}': {log_err}")
 
             if total_error_count == 0:
-                summary = f"Stack '{stack_name}' is healthy. No critical errors detected across {len(stack_containers)} container(s)."
+                summary = f"Stack '{stack_name}' is healthy. No critical errors detected across {len(stack_containers)} container(s) in the last 24h."
                 audit = StackAudit(
                     id=str(uuid.uuid4()),
                     stack_name=stack_name,
@@ -660,6 +680,25 @@ class StackWatcherManager:
                 )
                 db.add(incident)
 
+                # Record transcript events
+                log_transcript_event(incident_id, "PROMPT_GENERATED", {
+                    "stack_name": stack_name,
+                    "target_id": primary_target_id,
+                    "prompt": prompt,
+                    "error_count": total_error_count,
+                    "containers_checked": len(stack_containers),
+                })
+                log_transcript_event(incident_id, "AI_THINKING_RAW", {
+                    "raw_output": ai_output,
+                    "executor": os.getenv("AI_EXECUTOR", "opencode"),
+                })
+                log_transcript_event(incident_id, "DIAGNOSIS_PARSED", {
+                    "root_cause": root_cause,
+                    "proposed_fix": proposed_fix,
+                    "category": category,
+                    "action_required": action_required,
+                })
+
                 audit = StackAudit(
                     id=str(uuid.uuid4()),
                     stack_name=stack_name,
@@ -709,8 +748,10 @@ class StackWatcherManager:
                     "incident_id": None,
                     "error_count": total_error_count,
                     "containers_checked": len(stack_containers),
-                    "summary": root_cause,
                     "root_cause": root_cause,
+                    "proposed_fix": proposed_fix,
+                    "category": category,
+                    "summary": root_cause or "Non-actionable / transient warnings detected.",
                 }
 
         finally:

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, Incident, Target
 from app.notifier import send_followup_notification
 from app.qdrant_mem import qdrant_mem
+from app.transcript_logger import log_transcript_event
 
 logger = logging.getLogger("Remediator")
 
@@ -58,6 +59,11 @@ def run_remediation(incident_id: str):
             incident.status = "BLOCKED"
             incident.execution_log = f"Remediation BLOCKED: Unsafe command verification failed: {violation}"
             db.commit()
+            log_transcript_event(incident_id, "REMEDIATION_BLOCKED", {
+                "target_id": target_id,
+                "command": proposed_fix,
+                "violation": violation
+            })
             
             # Send alert notification
             from app.notifier import send_incident_notification
@@ -85,6 +91,14 @@ def run_remediation(incident_id: str):
         logger.info(f"Proposed fix execution complete. Exit code: {exit_code}")
         logger.info(f"Stdout: {stdout}")
         logger.info(f"Stderr: {stderr}")
+
+        log_transcript_event(incident_id, "REMEDIATION_EXECUTION", {
+            "target_id": target_id,
+            "command": proposed_fix,
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr
+        })
 
         # Save outputs to execution log
         execution_log = (
@@ -182,6 +196,12 @@ def run_remediation(incident_id: str):
                 logger.error(status_detail)
 
         # 5. Handle success/failure state update & notifications
+        log_transcript_event(incident_id, "POST_VERIFICATION", {
+            "target_id": target_id,
+            "is_healthy": is_healthy,
+            "status_detail": status_detail,
+        })
+
         if is_healthy:
             logger.info(f"Target '{target_id}' verified healthy ({status_detail}). Marking RESOLVED.")
             incident.status = "RESOLVED"

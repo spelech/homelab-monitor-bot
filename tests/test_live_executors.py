@@ -2,7 +2,7 @@
 tests/test_live_executors.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Live end-to-end integration test suite for AI Executors:
-  1. OpenCode Serve HTTP API (localhost:8447)
+  1. OpenCode Serve HTTP API (localhost:4096)
   2. OpenCode CLI Subprocess (opencode run)
   3. AGY CLI Subprocess (agy)
 
@@ -18,6 +18,7 @@ from app.investigator import (
     call_opencode_server,
     OPENCODE_PATH,
     AGY_PATH,
+    AGY_MODEL,
     OPENCODE_SERVER_URL,
     OPENCODE_PROVIDER_ID,
     OPENCODE_MODEL_ID
@@ -47,7 +48,7 @@ def test_live_opencode_cli_subprocess():
 def test_live_agy_cli_subprocess():
     """Verify live CLI subprocess invocation of agy."""
     prompt = "Respond with exactly: LIVE_AGY_CLI_VERIFIED"
-    cmd = [AGY_PATH, "--model", "gemini-3.5-flash-medium", "--dangerously-skip-permissions", "--print", prompt]
+    cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
     
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, f"agy CLI error: {result.stderr}"

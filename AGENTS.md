@@ -10,7 +10,7 @@ This file provides critical context, guidelines, and rules for AI coding agents 
 - **Frontend Dashboard:** Modular React + TypeScript SPA (`frontend/`) styled with Light/Dark Green structured CSS, built with Vite and served statically at `/`.
 - **Database:** SQLite (`/containers/monitorbot/monitorbot.db`) mapped via SQLAlchemy with `incidents`, `upgrade_runs`, `ai_usage_logs`, and `targets`.
 - **RAG Memory:** Local Qdrant instance storing files under `/containers/monitorbot/qdrant_data`.
-- **AI Investigation:** Runs OpenCode (default, via HTTP API `:8447` / CLI) or Antigravity (`agy` CLI) in a subprocess.
+- **AI Investigation:** Runs OpenCode (default, via HTTP API `:4096` / CLI) or Antigravity (`agy` CLI) in a subprocess.
 - **Autonomous Upgrades & Canary:** Runs non-interactive stack pulls, container recreation, image prune, and 4-phase Canary Health audits (`app/upgrades.py`), automatically triggering AI self-healing on failure.
 - **Service Management:** Managed as a host-level systemd service `monitorbot.service`.
 
