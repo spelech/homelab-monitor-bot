@@ -35,6 +35,11 @@ BENIGN_FILTER_PATTERNS = [
     re.compile(r"Task documents\.tasks\.train_classifier.*ValueError\('No training data available\.'\)", re.IGNORECASE),
     re.compile(r"Plugin mysql_native_password reported:.*deprecated", re.IGNORECASE),
     re.compile(r"ERROR qdrant::common::telemetry_reporting: Failed to report telemetry", re.IGNORECASE),
+    re.compile(r"Legend:\s+✓\s+ok\s+·\s+~\s+partial\s+·\s+✗\s+failed\s+·\s+--\s+skipped", re.IGNORECASE),
+    re.compile(r"WRN Client Error address=.*status=401|WRN Client Error.*unauthorized", re.IGNORECASE),
+    re.compile(r"Cannot get a reliable tag for this image \[sha256:", re.IGNORECASE),
+    re.compile(r"Warning: You are sending unauthenticated requests to the HF Hub", re.IGNORECASE),
+    re.compile(r"HTTPSConnectionPool\(host='.*\.plex\.direct'.*Read timed out", re.IGNORECASE),
 ]
 
 

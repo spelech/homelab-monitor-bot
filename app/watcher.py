@@ -43,10 +43,11 @@ def run_watcher():
                 is_failure = False
                 reason = ""
 
-                # Condition 1: Container die event with non-zero exit code
+                # Condition 1: Container die event with non-zero, non-graceful exit code
                 if action == "die":
-                    exit_code = attributes.get("exitCode", "0")
-                    if exit_code != "0":
+                    exit_code = str(attributes.get("exitCode", "0"))
+                    # Exit code 0 (clean), 143 (SIGTERM graceful stop), 130 (SIGINT) are not crash failures
+                    if exit_code not in ["0", "143", "130"]:
                         is_failure = True
                         reason = f"Container died with exit code {exit_code}"
 
