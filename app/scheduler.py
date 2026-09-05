@@ -223,6 +223,23 @@ def run_daily_sre_audit():
     finally:
         db.close()
 
+def run_storage_mount_audit():
+    logger.info("Triggering scheduled proactive storage and FUSE mount health audit.")
+    db: Session = SessionLocal()
+    try:
+        from app.database import check_maintenance_status
+        is_maint, maint_reason = check_maintenance_status(db)
+        if is_maint:
+            logger.info(f"Skipping storage and mount audit due to maintenance mode: {maint_reason}")
+            return
+
+        from app.system_health import audit_storage_and_mounts
+        audit_storage_and_mounts(db=db)
+    except Exception as e:
+        logger.error(f"Error during storage and mount audit: {e}")
+    finally:
+        db.close()
+
 def start_scheduler():
     import os
     from datetime import datetime, timedelta
@@ -244,6 +261,9 @@ def start_scheduler():
     audit_minute = int(os.getenv("SRE_AUDIT_CRON_MINUTE", "0"))
     scheduler.add_job(run_daily_sre_audit, "cron", hour=audit_hour, minute=audit_minute)
 
+    # Run proactive storage and FUSE mount health audits every 10 minutes
+    scheduler.add_job(run_storage_mount_audit, "interval", minutes=10)
+
     scheduler.start()
-    logger.info(f"Background Scheduler started (checking every 60s, heartbeat every {heartbeat_hours}h, SRE audit at {audit_hour:02d}:{audit_minute:02d} UTC).")
+    logger.info(f"Background Scheduler started (checking every 60s, heartbeat every {heartbeat_hours}h, SRE audit at {audit_hour:02d}:{audit_minute:02d} UTC, storage audits every 10m).")
 
