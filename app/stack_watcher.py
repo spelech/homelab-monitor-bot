@@ -146,6 +146,14 @@ class StackWatcherManager:
         self._client = client
         self._update_cache: Dict[str, Any] = {}
 
+    @property
+    def client(self) -> Optional[docker.DockerClient]:
+        return self._client
+
+    @client.setter
+    def client(self, value: Optional[docker.DockerClient]):
+        self._client = value
+
     def _get_client(self) -> Optional[docker.DockerClient]:
         if self._client is not None:
             return self._client
@@ -642,73 +650,155 @@ class StackWatcherManager:
                 logger.error(f"AI SRE analyst invocation failed for stack '{stack_name}': {ai_err}")
                 ai_output = None
 
-            root_cause = "Container errors detected during daily SRE audit."
-            proposed_fix = ""
-            category = "unknown"
-            action_required = True
-
+            parsed_json = None
             if ai_output:
                 try:
                     json_match = re.search(r"\{.*\}", ai_output, re.DOTALL)
                     if json_match:
-                        parsed = json.loads(json_match.group(0))
-                        root_cause = parsed.get("root_cause", root_cause)
-                        proposed_fix = parsed.get("proposed_fix", proposed_fix)
-                        category = parsed.get("category", category)
-                        action_required = bool(parsed.get("action_required", True))
+                        parsed_json = json.loads(json_match.group(0))
                 except Exception as parse_e:
                     logger.warning(f"Failed to parse AI output for stack '{stack_name}': {parse_e}")
 
-            if action_required:
-                primary_target_id = list(container_errors.keys())[0] if container_errors else stack_name
+            actionable_incidents: List[Incident] = []
+            actionable_incident_ids: List[str] = []
+            overall_summary = ""
+            primary_root_cause = "Container errors detected during daily SRE audit."
+            primary_proposed_fix = ""
+            primary_category = "unknown"
 
-                # Ensure Target exists
-                target = db.query(Target).filter(Target.id == primary_target_id).first()
-                if not target:
-                    target = Target(id=primary_target_id, type="docker", ignored_until=None)
-                    db.add(target)
-                    db.commit()
-                    db.refresh(target)
+            if parsed_json and isinstance(parsed_json.get("containers"), dict) and len(parsed_json["containers"]) > 0:
+                overall_summary = parsed_json.get("overall_summary", "")
+                for c_name, c_diag in parsed_json["containers"].items():
+                    if not isinstance(c_diag, dict):
+                        continue
+                    c_action_required = bool(c_diag.get("action_required", True))
+                    c_root_cause = c_diag.get("root_cause", "Container errors detected during daily SRE audit.")
+                    c_proposed_fix = c_diag.get("proposed_fix", "")
+                    c_category = str(c_diag.get("category", "unknown")).lower()
 
-                incident_id = str(uuid.uuid4())
-                incident = Incident(
-                    id=incident_id,
-                    target_id=primary_target_id,
-                    status="PENDING_USER",
-                    error_logs=aggregated_errors,
-                    root_cause=root_cause,
-                    proposed_fix=proposed_fix,
-                    category=str(category).lower(),
-                    stack_name=stack_name,
-                    origin="sre_daily_audit",
-                    created_at=datetime.utcnow(),
-                )
-                db.add(incident)
+                    if not primary_root_cause or primary_root_cause == "Container errors detected during daily SRE audit.":
+                        primary_root_cause = c_root_cause
+                        primary_proposed_fix = c_proposed_fix
+                        primary_category = c_category
 
-                # Record transcript events
-                log_transcript_event(incident_id, "PROMPT_GENERATED", {
-                    "stack_name": stack_name,
-                    "target_id": primary_target_id,
-                    "prompt": prompt,
-                    "error_count": total_error_count,
-                    "containers_checked": len(stack_containers),
-                })
-                log_transcript_event(incident_id, "AI_THINKING_RAW", {
-                    "raw_output": ai_output,
-                    "executor": os.getenv("AI_EXECUTOR", "opencode"),
-                })
-                log_transcript_event(incident_id, "DIAGNOSIS_PARSED", {
-                    "root_cause": root_cause,
-                    "proposed_fix": proposed_fix,
-                    "category": category,
-                    "action_required": action_required,
-                })
+                    if c_action_required:
+                        # Ensure Target exists
+                        target = db.query(Target).filter(Target.id == c_name).first()
+                        if not target:
+                            target = Target(id=c_name, type="docker", ignored_until=None)
+                            db.add(target)
+                            db.commit()
+                            db.refresh(target)
 
+                        c_error_logs = "\n".join(container_errors[c_name][-30:]) if c_name in container_errors else aggregated_errors
+
+                        incident_id = str(uuid.uuid4())
+                        incident = Incident(
+                            id=incident_id,
+                            target_id=c_name,
+                            status="PENDING_USER",
+                            error_logs=c_error_logs,
+                            root_cause=c_root_cause,
+                            proposed_fix=c_proposed_fix,
+                            category=c_category,
+                            stack_name=stack_name,
+                            origin="sre_daily_audit",
+                            created_at=datetime.utcnow(),
+                        )
+                        db.add(incident)
+                        actionable_incidents.append(incident)
+                        actionable_incident_ids.append(incident_id)
+
+                        # Record transcript events
+                        log_transcript_event(incident_id, "PROMPT_GENERATED", {
+                            "stack_name": stack_name,
+                            "target_id": c_name,
+                            "prompt": prompt,
+                            "error_count": len(container_errors.get(c_name, [])),
+                            "containers_checked": len(stack_containers),
+                        })
+                        log_transcript_event(incident_id, "AI_THINKING_RAW", {
+                            "raw_output": ai_output,
+                            "executor": os.getenv("AI_EXECUTOR", "opencode"),
+                        })
+                        log_transcript_event(incident_id, "DIAGNOSIS_PARSED", {
+                            "root_cause": c_root_cause,
+                            "proposed_fix": c_proposed_fix,
+                            "category": c_category,
+                            "action_required": c_action_required,
+                        })
+            else:
+                # Flat format backward compatibility / fallback
+                root_cause = "Container errors detected during daily SRE audit."
+                proposed_fix = ""
+                category = "unknown"
+                action_required = True
+
+                if parsed_json:
+                    root_cause = parsed_json.get("root_cause", root_cause)
+                    proposed_fix = parsed_json.get("proposed_fix", proposed_fix)
+                    category = parsed_json.get("category", category)
+                    action_required = bool(parsed_json.get("action_required", True))
+
+                primary_root_cause = root_cause
+                primary_proposed_fix = proposed_fix
+                primary_category = category
+                overall_summary = root_cause
+
+                if action_required:
+                    primary_target_id = list(container_errors.keys())[0] if container_errors else stack_name
+
+                    # Ensure Target exists
+                    target = db.query(Target).filter(Target.id == primary_target_id).first()
+                    if not target:
+                        target = Target(id=primary_target_id, type="docker", ignored_until=None)
+                        db.add(target)
+                        db.commit()
+                        db.refresh(target)
+
+                    incident_id = str(uuid.uuid4())
+                    incident = Incident(
+                        id=incident_id,
+                        target_id=primary_target_id,
+                        status="PENDING_USER",
+                        error_logs=aggregated_errors,
+                        root_cause=root_cause,
+                        proposed_fix=proposed_fix,
+                        category=str(category).lower(),
+                        stack_name=stack_name,
+                        origin="sre_daily_audit",
+                        created_at=datetime.utcnow(),
+                    )
+                    db.add(incident)
+                    actionable_incidents.append(incident)
+                    actionable_incident_ids.append(incident_id)
+
+                    # Record transcript events
+                    log_transcript_event(incident_id, "PROMPT_GENERATED", {
+                        "stack_name": stack_name,
+                        "target_id": primary_target_id,
+                        "prompt": prompt,
+                        "error_count": total_error_count,
+                        "containers_checked": len(stack_containers),
+                    })
+                    log_transcript_event(incident_id, "AI_THINKING_RAW", {
+                        "raw_output": ai_output,
+                        "executor": os.getenv("AI_EXECUTOR", "opencode"),
+                    })
+                    log_transcript_event(incident_id, "DIAGNOSIS_PARSED", {
+                        "root_cause": root_cause,
+                        "proposed_fix": proposed_fix,
+                        "category": category,
+                        "action_required": action_required,
+                    })
+
+            if actionable_incident_ids:
+                audit_summary = overall_summary or primary_root_cause
                 audit = StackAudit(
                     id=str(uuid.uuid4()),
                     stack_name=stack_name,
                     status="ACTION_REQUIRED",
-                    summary=root_cause,
+                    summary=audit_summary,
                     error_count=str(total_error_count),
                     containers_checked=str(len(stack_containers)),
                     created_at=datetime.utcnow(),
@@ -716,30 +806,33 @@ class StackWatcherManager:
                 db.add(audit)
                 db.commit()
 
-                # Trigger notification
-                try:
-                    from app.notifier import send_incident_notification
-                    send_incident_notification(incident.id)
-                except Exception as notif_err:
-                    logger.error(f"Failed to send incident notification for SRE audit {incident.id}: {notif_err}")
+                # Trigger notifications
+                for inc in actionable_incidents:
+                    try:
+                        from app.notifier import send_incident_notification
+                        send_incident_notification(inc.id)
+                    except Exception as notif_err:
+                        logger.error(f"Failed to send incident notification for SRE audit {inc.id}: {notif_err}")
 
                 return {
                     "stack_name": stack_name,
                     "status": "ACTION_REQUIRED",
-                    "incident_id": incident.id,
+                    "incident_id": actionable_incident_ids[0],
+                    "incident_ids": actionable_incident_ids,
                     "error_count": total_error_count,
                     "containers_checked": len(stack_containers),
-                    "root_cause": root_cause,
-                    "proposed_fix": proposed_fix,
-                    "category": category,
-                    "summary": root_cause,
+                    "root_cause": primary_root_cause,
+                    "proposed_fix": primary_proposed_fix,
+                    "category": primary_category,
+                    "summary": audit_summary,
                 }
             else:
+                summary_text = overall_summary or primary_root_cause or "Non-actionable / transient warnings detected."
                 audit = StackAudit(
                     id=str(uuid.uuid4()),
                     stack_name=stack_name,
                     status="WARNING",
-                    summary=root_cause or "Non-actionable / transient warnings detected.",
+                    summary=summary_text,
                     error_count=str(total_error_count),
                     containers_checked=str(len(stack_containers)),
                     created_at=datetime.utcnow(),
@@ -751,12 +844,13 @@ class StackWatcherManager:
                     "stack_name": stack_name,
                     "status": "WARNING",
                     "incident_id": None,
+                    "incident_ids": [],
                     "error_count": total_error_count,
                     "containers_checked": len(stack_containers),
-                    "root_cause": root_cause,
-                    "proposed_fix": proposed_fix,
-                    "category": category,
-                    "summary": root_cause or "Non-actionable / transient warnings detected.",
+                    "root_cause": primary_root_cause,
+                    "proposed_fix": primary_proposed_fix,
+                    "category": primary_category,
+                    "summary": summary_text,
                 }
 
         finally:

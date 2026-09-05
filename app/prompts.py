@@ -169,13 +169,20 @@ def build_sre_audit_prompt(stack_name: str, aggregated_errors: str) -> str:
         f"{BENIGN_LOG_GUIDELINES}\n\n"
         f"{REMEDIATION_PLAN_CONTRACT}\n\n"
         f"=== Daily SRE Log Audit for Stack: '{stack_name}' ===\n"
-        f"The following error/warning lines were detected:\n\n{aggregated_errors}\n\n"
-        "Analyze the errors against the homelab rules and benign noise guidelines. "
-        "Determine if there is an actionable root cause requiring human intervention or remediation. "
-        "Output ONLY valid JSON with exactly four keys: "
-        "'root_cause' (string explaining the issue), "
-        "'proposed_fix' (string containing valid bash commands or a multi-step remediation plan), "
-        "'category' (string classifying the issue into one of: 'network', 'reverse_proxy', 'permissions', 'settings', 'database', 'unknown'), and "
-        "'action_required' (boolean: true if actionable issue requiring fix/investigation, false if benign/informational/transient warning). "
+        f"Here are the extracted warning and error logs grouped by container:\n"
+        f"{aggregated_errors}\n\n"
+        "Evaluate each container independently. Provide your diagnosis as strict JSON matching this schema:\n"
+        "{\n"
+        '  "containers": {\n'
+        '    "<container_name>": {\n'
+        '      "root_cause": "Specific root cause for this container (1-2 sentences)",\n'
+        '      "proposed_fix": "Clear, actionable step-by-step remediation commands",\n'
+        '      "category": "one of: network_error, database_error, auth_failure, storage_io, api_error, config_syntax, resource_limit, transient_warning",\n'
+        '      "action_required": true or false\n'
+        "    }\n"
+        "  },\n"
+        '  "overall_summary": "1-2 sentence summary of overall stack health"\n'
+        "}\n"
         "Do not include markdown formatting or backticks."
     )
+
