@@ -51,6 +51,60 @@ def test_send_incident_notification_fallback(db_session):
             assert "test-notifier-target failure" in mock_send_email.call_args[0][0]
 
 
+def test_send_incident_notification_actions_header_format(db_session):
+    target = Target(id="test-action-target", type="docker")
+    db_session.add(target)
+    db_session.commit()
+
+    incident = Incident(
+        id="test-action-uuid",
+        target_id="test-action-target",
+        status="PENDING_USER",
+        root_cause="Port conflict.",
+        proposed_fix="docker stop conflicting_container"
+    )
+    db_session.add(incident)
+    db_session.commit()
+
+    mock_resp_fail = MagicMock(status_code=500, text="Server Error")
+    mock_resp_ok = MagicMock(status_code=200, text="OK")
+
+    with patch("requests.post", side_effect=[mock_resp_fail, mock_resp_ok]) as mock_post:
+        with patch.dict(os.environ, {
+            "NTFY_URL": "https://ntfy.primary.com",
+            "NTFY_TOPIC": "alerts",
+            "NTFY_FALLBACK_URL": "http://localhost:9010",
+            "WEBHOOK_BASE_URL": "https://monitorbot.wileyriley.com",
+            "LOCAL_WEBHOOK_BASE_URL": "http://10.0.0.10:9013",
+            "WEBHOOK_TOKEN": "secret_token",
+            "TELEGRAM_BOT_TOKEN": "",
+            "TELEGRAM_CHAT_ID": ""
+        }):
+            send_incident_notification("test-action-uuid")
+
+            assert mock_post.call_count == 2
+            
+            # 1. Primary call checks
+            primary_call = mock_post.call_args_list[0]
+            primary_headers = primary_call[1]["headers"]
+            assert "Actions" in primary_headers
+            primary_actions = primary_headers["Actions"]
+            # Must use headers.Content-Type=application/json, NOT headers=Content-Type:application/json
+            assert "headers.Content-Type=application/json" in primary_actions
+            assert "headers=Content-Type:application/json" not in primary_actions
+            assert "https://monitorbot.wileyriley.com/api/webhooks/test-action-uuid?token=secret_token" in primary_actions
+
+            # 2. LAN Fallback call checks
+            fallback_call = mock_post.call_args_list[1]
+            fallback_headers = fallback_call[1]["headers"]
+            assert "Actions" in fallback_headers
+            fallback_actions = fallback_headers["Actions"]
+            assert "headers.Content-Type=application/json" in fallback_actions
+            assert "headers=Content-Type:application/json" not in fallback_actions
+            # Per AGENTS.md, fallback actions must point to local LAN IP http://10.0.0.10:9013
+            assert "http://10.0.0.10:9013/api/webhooks/test-action-uuid?token=secret_token" in fallback_actions
+
+
 def test_send_telegram_invoked(db_session):
     target = Target(id="test-tg-target", type="docker")
     db_session.add(target)

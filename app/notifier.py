@@ -169,11 +169,11 @@ def send_incident_notification(incident_id: str):
             )
             webhook_url = f"{webhook_base_url}/api/webhooks/{incident_id}?token={webhook_token}"
             # Construct Action Buttons Header
-            # ntfy supports: http, Label, URL, method=POST, body=JSON
+            # ntfy supports: http, Label, URL, method=POST, headers.<Header>=<Value>, body=JSON
             actions_str = (
-                f"http, Fix Now, {webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
-                f"http, Defer 24h, {webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore Target, {webhook_url}, method=POST, headers=Content-Type:application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Fix Now, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
+                f"http, Defer 24h, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
+                f"http, Ignore Target, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
             )
 
         # Always try to send to Telegram as well if configured
@@ -211,8 +211,20 @@ def send_incident_notification(incident_id: str):
         ntfy_fallback = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
         fallback_url = f"{ntfy_fallback}/{ntfy_topic}"
         logger.info(f"Attempting direct local LAN ntfy fallback to {fallback_url}...")
+
+        # Per AGENTS.md, action buttons in fallback request must point to local LAN IP
+        local_ip_webhook_base = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://10.0.0.10:9013").rstrip("/")
+        fallback_headers = dict(headers)
+        if actions_str:
+            fallback_webhook_url = f"{local_ip_webhook_base}/api/webhooks/{incident_id}?token={webhook_token}"
+            fallback_headers["Actions"] = (
+                f"http, Fix Now, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
+                f"http, Defer 24h, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
+                f"http, Ignore Target, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
+            )
+
         try:
-            resp = requests.post(fallback_url, data=message_body.encode("utf-8"), headers=headers, timeout=10)
+            resp = requests.post(fallback_url, data=message_body.encode("utf-8"), headers=fallback_headers, timeout=10)
             if resp.status_code == 200:
                 logger.info(f"Notification sent successfully via local LAN ntfy ({fallback_url})")
                 incident.last_notified_at = datetime.utcnow()
