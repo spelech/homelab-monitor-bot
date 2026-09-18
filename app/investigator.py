@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import logging
 import subprocess
 import requests
@@ -31,6 +32,35 @@ OPENCODE_PATH = os.getenv("OPENCODE_PATH", "/home/steve/.nvm/versions/node/v22.1
 OPENCODE_SERVER_URL = os.getenv("OPENCODE_SERVER_URL", "http://localhost:4096")
 OPENCODE_PROVIDER_ID = os.getenv("OPENCODE_PROVIDER_ID", _default_provider)
 OPENCODE_MODEL_ID = os.getenv("OPENCODE_MODEL_ID", _default_model)
+
+AI_DISPATCH_URL = os.getenv("AI_DISPATCH_URL", "http://localhost:8032/v1").rstrip("/")
+AI_MODEL = os.getenv("AI_MODEL", os.getenv("AI_EXECUTOR", "opencode")).lower()
+AI_DISPATCH_TIMEOUT = int(os.getenv("AI_DISPATCH_TIMEOUT", "180"))
+
+def call_ai_dispatch_server(prompt: str, model_id: str = None, timeout: int = None) -> tuple[str, float]:
+    """Call CLIAgentDispatch OpenAI-compatible HTTP endpoint (:8032/v1/chat/completions)."""
+    target_model = model_id or AI_MODEL
+    req_timeout = timeout or AI_DISPATCH_TIMEOUT
+    url = f"{AI_DISPATCH_URL}/chat/completions"
+    
+    payload = {
+        "model": target_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2
+    }
+    
+    start_time = time.time()
+    resp = requests.post(url, json=payload, timeout=req_timeout)
+    duration = time.time() - start_time
+    resp.raise_for_status()
+    
+    data = resp.json()
+    choices = data.get("choices", [])
+    if not choices:
+        raise ValueError("No choices returned from AI dispatch gateway")
+    
+    content = choices[0].get("message", {}).get("content", "")
+    return content, duration
 
 def call_opencode_server(prompt: str, provider_id: str = None, model_id: str = None, timeout: int = 180) -> str:
     """Call headless opencode serve HTTP API."""
