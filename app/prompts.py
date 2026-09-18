@@ -14,13 +14,27 @@ logger = logging.getLogger("Prompts")
 HOMELAB_SYSTEM_RULES = """
 === Homelab Infrastructure Architecture & Rules ===
 1. Server Host IP: 10.0.0.10 (Linux host running Docker Compose & systemd).
-2. Stack Root Paths: All Docker Compose stacks are located in '/containers/<category>/docker-compose.yaml'.
-3. Reverse Proxy: Caddy is the universal reverse proxy. Dynamic routes are managed via container labels ('caddy=...'), and static routes live in '/containers/webservices/caddy/Caddyfile'. NOTE: Nginx / SWAG is deprecated and NOT used. NEVER generate Nginx directives (such as 'proxy_buffering', 'proxy_read_timeout', 'proxy_pass', etc.) or search deprecated Nginx paths.
-4. Authentication & SSO: TinyAuth ('tinyauth.apps.*' labels) and PocketID provide forward-auth and OIDC.
-5. Local DNS: AdGuard Home at 10.0.0.2 (pi@adguard). Public wildcard is '*.wileyriley.com'.
+2. Stack Root Paths: All Docker Compose stacks are located in '/containers/<category>/docker-compose.yaml'. Shared networks are registered in '/containers/networks-compose.yaml'.
+3. Reverse Proxy (Caddy): Caddy is the universal reverse proxy. EXPLICIT CADDYFILE ONLY: All persistent service routes MUST be explicitly configured in '/containers/webservices/caddy/Caddyfile' for determinism and reliability. DO NOT use 'caddy-docker-proxy' labels ('caddy=...', 'caddy.reverse_proxy=...') in compose files. Ephemeral previews and dev backends use 'agent-preview' or dynamic bridge 'https://p-<port>.wileyriley.com'. NOTE: Nginx / SWAG is deprecated and NOT used. NEVER generate Nginx directives (such as 'proxy_buffering', 'proxy_read_timeout', 'proxy_pass', etc.) or search deprecated Nginx paths. Before restarting Caddy, validate with: docker compose exec caddy caddy fmt --overwrite /etc/caddy/Caddyfile && docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile.
+4. Authentication & SSO: TinyAuth ('tinyauth.apps.*' labels) and PocketID provide forward-auth and OIDC. Servarr apps (Radarr, Sonarr, Prowlarr) use External authentication behind TinyAuth.
+5. Local DNS: AdGuard Home at 10.0.0.2 (pi@adguard). New local rewrites use '/home/pi/scripts/adguard-add-rewrite.sh <domain> 10.0.0.10'. Public wildcard is '*.wileyriley.com' managed via Cloudflare.
 6. MCP Router & Knowledge Hub:
    - MCP Gateway Router: http://10.0.0.10:8026/sse (X-App-Key: mcp-global-steve-default-cli-key-99)
    - Knowledge / Notes RAG (ContextCortex): Direct fallback at http://10.0.0.10:8021/sse if router is unavailable.
+7. Container Immutability & Deployment:
+   - NEVER hot-patch or replace files inside running containers (no 'docker cp' or live file editing).
+   - Containers are immutable runtime artifacts. Always deploy using official/built images followed by: docker compose up -d --force-recreate <service>.
+8. Storage & Disk SMART Context:
+   - High-capacity, long-running SATA drives (e.g. /dev/sdg on /drives/moviestv4k) may have historical UDMA CRC error records from past cable issues that cause smartctl to exit with code 64 (bit 6: 'The device error log contains records of errors'). This does NOT indicate active drive degradation.
+   - A drive is only degraded or failing if 'SMART overall-health self-assessment' FAILS or raw values for Reallocated_Sector_Ct (ID 5), Current_Pending_Sector (ID 197), or Offline_Uncorrectable (ID 198) are actively incrementing. Do NOT recommend drive replacement on historical error logs alone.
+9. Transient Job Retries & Self-Healing:
+   - Background cron jobs (e.g., 'cron-automations', budget sync) employ retry loops. Transient retry notices (e.g., '[RETRY] ... Attempt 1/3') are normal self-healing behavior and do NOT represent fatal failures or require credential re-authentication unless all retry attempts are exhausted.
+10. Container Healthchecks & DB Noise:
+    - Certain database containers (e.g. MariaDB in 'finance' / 'receiptwrangler_db') execute periodic local healthchecks (such as 'mysqladmin ping') that log benign access denied or password warnings during routine polling. Verify whether connection errors match container healthcheck intervals before diagnosing broken credentials.
+11. Media Scanners & Idempotent Rescans:
+    - Media management services (Seerr, ErsatzTV, Radarr) perform routine background rescans. Handled unique constraint catches (e.g. Seerr Plex scan duplicate tvdbId) and duplicate file notices ('Media file already exists') are non-fatal application-level deduplication, not database corruption.
+12. Optional Feature Warnings:
+    - Services with unconfigured optional modules (such as Sure's 'ImportMarketDataJob' when no market quote provider is configured) emit continuous informational warnings that are benign by design and do not require remediation.
 """
 
 BENIGN_LOG_GUIDELINES = """
