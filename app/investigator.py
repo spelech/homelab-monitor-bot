@@ -180,18 +180,23 @@ def run_investigation_logic(db: Session, incident: Incident):
         "historical_context": historical_context
     })
 
-    # 4. Run AI executor (HTTP API or CLI Subprocess)
+    # 4. Run AI executor via CLIAgentDispatch HTTP with local CLI subprocess fallback
     output = None
-    current_executor = os.getenv("AI_EXECUTOR", "opencode").lower()
-    if current_executor == "opencode":
-        try:
-            logger.info(f"Attempting opencode serve HTTP API at {OPENCODE_SERVER_URL} for incident {incident_id}...")
-            output = call_opencode_server(prompt)
-        except Exception as api_err:
-            logger.warning(f"opencode serve HTTP API failed: {api_err}. Falling back to CLI subprocess...")
+    exec_duration = 0.0
+    current_executor = AI_MODEL
+
+    try:
+        logger.info(f"Dispatching investigation prompt to CLIAgentDispatch HTTP ({AI_DISPATCH_URL}) with model '{AI_MODEL}'...")
+        output, exec_duration = call_ai_dispatch_server(prompt, model_id=AI_MODEL)
+    except Exception as dispatch_err:
+        logger.warning(f"CLIAgentDispatch HTTP failed ({dispatch_err}). Falling back to direct CLI subprocess execution...")
+        start_time = time.time()
+        if "opencode" in AI_MODEL:
+            logger.info(f"Falling back to opencode CLI at {OPENCODE_PATH} for incident {incident_id}...")
             cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                exec_duration = time.time() - start_time
                 if result.returncode == 0:
                     output = result.stdout
                 else:
@@ -199,7 +204,7 @@ def run_investigation_logic(db: Session, incident: Incident):
                     incident.status = "FAILED"
                     incident.execution_log = f"opencode CLI error: {result.stderr}"
                     db.commit()
-                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": result.stderr})
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
                     return
             except Exception as cli_err:
                 logger.error(f"opencode CLI error: {cli_err}")
@@ -208,45 +213,69 @@ def run_investigation_logic(db: Session, incident: Incident):
                 db.commit()
                 log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
                 return
-    else:
-        logger.info(f"Calling agy CLI at {AGY_PATH} using {AGY_MODEL} for incident {incident_id}...")
-        cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            if result.returncode != 0:
-                logger.error(f"agy execution failed: {result.stderr}")
+        elif "agy" in AI_MODEL:
+            logger.info(f"Falling back to agy CLI at {AGY_PATH} using {AGY_MODEL} for incident {incident_id}...")
+            cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                exec_duration = time.time() - start_time
+                if result.returncode != 0:
+                    logger.error(f"agy execution failed: {result.stderr}")
+                    incident.status = "FAILED"
+                    incident.execution_log = f"agy error: {result.stderr}"
+                    db.commit()
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                    return
+                output = result.stdout
+            except Exception as agy_err:
+                logger.error(f"agy execution error: {agy_err}")
                 incident.status = "FAILED"
-                incident.execution_log = f"agy error: {result.stderr}"
+                incident.execution_log = f"agy error: {agy_err}"
                 db.commit()
-                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": result.stderr})
+                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(agy_err)})
                 return
-            output = result.stdout
-        except Exception as agy_err:
-            logger.error(f"agy execution error: {agy_err}")
-            incident.status = "FAILED"
-            incident.execution_log = f"agy error: {agy_err}"
-            db.commit()
-            log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(agy_err)})
-            return
+        else:
+            logger.warning(f"Unrecognized AI_MODEL '{AI_MODEL}' for CLI fallback, defaulting to opencode CLI...")
+            cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                exec_duration = time.time() - start_time
+                if result.returncode == 0:
+                    output = result.stdout
+                else:
+                    logger.error(f"CLI execution failed: {result.stderr}")
+                    incident.status = "FAILED"
+                    incident.execution_log = f"CLI error: {result.stderr}"
+                    db.commit()
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                    return
+            except Exception as cli_err:
+                logger.error(f"CLI error: {cli_err}")
+                incident.status = "FAILED"
+                incident.execution_log = f"CLI error: {cli_err}"
+                db.commit()
+                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
+                return
 
     logger.info(f"Received output from {current_executor}: {output}")
 
     log_transcript_event(incident_id, "AI_THINKING_RAW", {
         "raw_output": output,
         "executor": current_executor,
-        "model_id": OPENCODE_MODEL_ID if current_executor == "opencode" else AGY_MODEL
+        "model_id": AI_MODEL,
+        "exec_duration": exec_duration
     })
 
     # Record AI Usage & Spend metrics
     try:
         from app.ai_usage import record_ai_usage
-        model_name = OPENCODE_MODEL_ID if current_executor == "opencode" else AGY_MODEL
         record_ai_usage(
             incident_id=incident_id,
             executor=current_executor,
-            model_id=model_name,
+            model_id=AI_MODEL,
             prompt_text=prompt,
             completion_text=output or "",
+            duration_sec=exec_duration,
             status="SUCCESS" if output else "FAILED"
         )
     except Exception as usage_err:

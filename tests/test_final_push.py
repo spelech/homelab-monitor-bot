@@ -63,7 +63,7 @@ def test_investigator_learns_qdrant_and_auto_approves(mock_run, db_session):
     
     mock_json = '{"root_cause": "Permissions mismatch", "proposed_fix": "chmod -R 755 /data", "category": "permissions"}'
     
-    with patch("app.investigator.call_opencode_server", return_value=mock_json), \
+    with patch("app.investigator.call_ai_dispatch_server", return_value=(mock_json, 1.0)), \
          patch("app.database.get_setting", return_value="true"), \
          patch("app.remediator.run_remediation") as mock_remedy, \
          patch("app.qdrant_mem.qdrant_mem.learn_incident"):

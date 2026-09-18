@@ -63,3 +63,105 @@ def test_call_ai_dispatch_server_http_error():
     with patch("app.investigator.requests.post", return_value=mock_resp):
         with pytest.raises(requests.exceptions.HTTPError):
             call_ai_dispatch_server(prompt="Investigate failure")
+
+def test_investigation_logic_uses_ai_dispatch_http(db_session):
+    from app.database import Incident, Target
+    from app.investigator import run_investigation_logic
+
+    target = Target(id="test-http-target", type="docker")
+    db_session.add(target)
+    inc = Incident(
+        id="test-http-uuid",
+        target_id="test-http-target",
+        status="DETECTED",
+        error_logs="Database connection refused"
+    )
+    db_session.add(inc)
+    db_session.commit()
+
+    http_output = '{"root_cause": "Database connection refused", "proposed_fix": "docker restart test-http-target", "category": "database"}'
+
+    with patch("app.investigator.call_ai_dispatch_server", return_value=(http_output, 1.25)) as mock_dispatch, \
+         patch("subprocess.run") as mock_subproc, \
+         patch("app.notifier.send_incident_notification") as mock_notify:
+
+        run_investigation_logic(db_session, inc)
+
+        db_session.refresh(inc)
+        assert inc.status == "PENDING_USER"
+        assert inc.root_cause == "Database connection refused"
+        assert inc.proposed_fix == "docker restart test-http-target"
+        assert inc.category == "database"
+        mock_dispatch.assert_called_once()
+        mock_subproc.assert_not_called()
+        mock_notify.assert_called_once()
+
+def test_investigation_fallback_to_cli_when_http_fails(db_session):
+    from app.database import Incident, Target
+    from app.investigator import run_investigation_logic
+
+    target = Target(id="test-fb-target", type="docker")
+    db_session.add(target)
+    inc = Incident(
+        id="test-fb-uuid",
+        target_id="test-fb-target",
+        status="DETECTED",
+        error_logs="Fatal error in container"
+    )
+    db_session.add(inc)
+    db_session.commit()
+
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_res.stdout = '{"root_cause": "CLI fallback cause", "proposed_fix": "docker restart test-fb-target", "category": "crash"}'
+    mock_res.stderr = ""
+
+    with patch("app.investigator.call_ai_dispatch_server", side_effect=Exception("HTTP connection refused")) as mock_dispatch, \
+         patch("subprocess.run", return_value=mock_res) as mock_subproc, \
+         patch("app.notifier.send_incident_notification") as mock_notify:
+
+        run_investigation_logic(db_session, inc)
+
+        db_session.refresh(inc)
+        assert inc.status == "PENDING_USER"
+        assert inc.root_cause == "CLI fallback cause"
+        assert inc.proposed_fix == "docker restart test-fb-target"
+        assert inc.category == "crash"
+        mock_dispatch.assert_called_once()
+        mock_subproc.assert_called_once()
+        mock_notify.assert_called_once()
+
+def test_investigation_both_http_and_cli_fail(db_session):
+    from app.database import Incident, Target
+    from app.investigator import run_investigation_logic
+
+    target = Target(id="test-fail-target", type="docker")
+    db_session.add(target)
+    inc = Incident(
+        id="test-fail-uuid",
+        target_id="test-fail-target",
+        status="DETECTED",
+        error_logs="Crash loop"
+    )
+    db_session.add(inc)
+    db_session.commit()
+
+    mock_res = MagicMock()
+    mock_res.returncode = 1
+    mock_res.stderr = "CLI execution crashed"
+    mock_res.stdout = ""
+
+    with patch("app.investigator.call_ai_dispatch_server", side_effect=Exception("HTTP unreachable")) as mock_dispatch, \
+         patch("subprocess.run", return_value=mock_res) as mock_subproc, \
+         patch("app.notifier.send_incident_notification") as mock_notify:
+
+        run_investigation_logic(db_session, inc)
+
+        db_session.refresh(inc)
+        assert inc.status == "FAILED"
+        assert "CLI execution crashed" in inc.execution_log
+        mock_dispatch.assert_called_once()
+        mock_subproc.assert_called_once()
+        mock_notify.assert_not_called()
+
+
