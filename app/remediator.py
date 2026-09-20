@@ -121,7 +121,7 @@ def run_remediation(incident_id: str):
         # Check if the target is a docker container and has a kuma url label
         kuma_url = None
         target = db.query(Target).filter(Target.id == target_id).first()
-        if target and target.type != "systemd":
+        if target and target.type not in ["systemd", "system_mount"]:
             try:
                 client = docker.from_env()
                 container = client.containers.get(target_id)
@@ -176,6 +176,15 @@ def run_remediation(incident_id: str):
                         status_detail = "active (running)"
                     else:
                         status_detail = "inactive/failed"
+                elif target and target.type == "system_mount":
+                    from app.system_health import probe_mount
+                    mount_path = target_id.replace("mount:", "")
+                    probe_res = probe_mount(mount_path, timeout=3.0)
+                    if probe_res.get("healthy"):
+                        is_healthy = True
+                        status_detail = f"mount healthy ({mount_path})"
+                    else:
+                        status_detail = f"mount unhealthy: {probe_res.get('error')}"
                 else:
                     client = docker.from_env()
                     container = client.containers.get(target_id)

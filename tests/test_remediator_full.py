@@ -74,3 +74,33 @@ def test_remediator_execution_success(mock_docker, mock_sleep, mock_run, db_sess
         assert inc.status == "RESOLVED"
         assert inc.completed_at is not None
         mock_notify.assert_called_once()
+
+
+@patch("app.remediator.subprocess.run")
+@patch("app.remediator.time.sleep")
+def test_remediator_system_mount_success(mock_sleep, mock_run, db_session):
+    target = Target(id="mount:/drives/test/mount", type="system_mount")
+    inc = Incident(
+        id="inc-mount-remedy",
+        target_id="mount:/drives/test/mount",
+        status="PENDING_USER",
+        proposed_fix="fusermount -u -z '/drives/test/mount'",
+        root_cause="Transport endpoint disconnected"
+    )
+    db_session.add(target)
+    db_session.add(inc)
+    db_session.commit()
+
+    mock_run.return_value = MagicMock(returncode=0, stdout="Unmounted", stderr="")
+
+    with patch("app.system_health.probe_mount", return_value={"healthy": True, "error": None}) as mock_probe, \
+         patch("app.remediator.send_followup_notification") as mock_notify, \
+         patch("app.qdrant_mem.qdrant_mem.learn_incident"):
+
+        run_remediation("inc-mount-remedy")
+        db_session.refresh(inc)
+        assert inc.status == "RESOLVED"
+        assert inc.completed_at is not None
+        mock_probe.assert_called_once_with("/drives/test/mount", timeout=3.0)
+        mock_notify.assert_called_once()
+

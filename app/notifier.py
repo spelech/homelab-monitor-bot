@@ -171,9 +171,9 @@ def send_incident_notification(incident_id: str):
             # Construct Action Buttons Header
             # ntfy supports: http, Label, URL, method=POST, headers.<Header>=<Value>, body=JSON
             actions_str = (
-                f"http, Fix Now, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
-                f"http, Defer 24h, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore Target, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Fix Now, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\"action\":\"fix\"}}; "
+                f"http, Defer 24h, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\"action\":\"defer\"}}; "
+                f"http, Ignore Target, {webhook_url}, method=POST, headers.Content-Type=application/json, body={{\"action\":\"ignore\"}}"
             )
 
         # Always try to send to Telegram as well if configured
@@ -218,9 +218,9 @@ def send_incident_notification(incident_id: str):
         if actions_str:
             fallback_webhook_url = f"{local_ip_webhook_base}/api/webhooks/{incident_id}?token={webhook_token}"
             fallback_headers["Actions"] = (
-                f"http, Fix Now, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"fix\\\"}}; "
-                f"http, Defer 24h, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"defer\\\"}}; "
-                f"http, Ignore Target, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\\\"action\\\": \\\"ignore\\\"}}"
+                f"http, Fix Now, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\"action\":\"fix\"}}; "
+                f"http, Defer 24h, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\"action\":\"defer\"}}; "
+                f"http, Ignore Target, {fallback_webhook_url}, method=POST, headers.Content-Type=application/json, body={{\"action\":\"ignore\"}}"
             )
 
         try:

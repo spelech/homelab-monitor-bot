@@ -173,13 +173,35 @@ def unignore_target(target_id: str, db: Session = Depends(get_db)):
 @router.api_route("/webhooks/{incident_id}", methods=["GET", "POST"])
 async def handle_webhook(
     incident_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
-    payload: Optional[WebhookPayload] = None,
     action: Optional[str] = Query(None),
     token: str = Query(...),
     db: Session = Depends(get_db)
 ):
-    act = (payload.action if payload else action) or action
+    act = action
+    if not act and request.method == "POST":
+        try:
+            raw_body = await request.body()
+            if raw_body:
+                body_str = raw_body.decode("utf-8", errors="ignore").strip()
+                import json
+                try:
+                    parsed = json.loads(body_str)
+                    if isinstance(parsed, dict):
+                        act = parsed.get("action")
+                except Exception:
+                    # Clean escaped backslashes e.g. {\"action\": \"fix\"}
+                    cleaned = body_str.replace('\\"', '"')
+                    try:
+                        parsed = json.loads(cleaned)
+                        if isinstance(parsed, dict):
+                            act = parsed.get("action")
+                    except Exception:
+                        pass
+        except Exception as body_err:
+            logger.warning(f"Error parsing webhook body: {body_err}")
+
     if not act:
         raise HTTPException(status_code=400, detail="Action parameter required")
 
@@ -208,6 +230,13 @@ async def handle_webhook(
             if res.returncode == 0:
                 already_healthy = True
                 chk_detail = "active (running)"
+        elif target and target.type == "system_mount":
+            from app.system_health import probe_mount
+            mount_path = target_id.replace("mount:", "")
+            probe_res = probe_mount(mount_path, timeout=3.0)
+            if probe_res.get("healthy"):
+                already_healthy = True
+                chk_detail = "mount healthy"
         else:
             import docker
             client = docker.from_env()

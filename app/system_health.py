@@ -243,11 +243,17 @@ def audit_storage_and_mounts(db: Optional[Session] = None) -> List[Dict[str, Any
                         completed_at=datetime.utcnow(),
                     )
                 else:
-                    proposed_fix = (
-                        f"fusermount -u -z '{mount_path}' || umount -l '{mount_path}'\n"
-                        f"# Remount or restart provider service if applicable\n"
-                        f"# systemctl restart rclone || docker compose restart"
-                    )
+                    if "riven" in mount_path:
+                        proposed_fix = (
+                            f"fusermount -u -z '{mount_path}' || umount -l '{mount_path}'\n"
+                            f"docker start riven 2>/dev/null || docker compose -f /containers/media_content/docker-compose.yaml up -d riven || true"
+                        )
+                    else:
+                        proposed_fix = (
+                            f"fusermount -u -z '{mount_path}' || umount -l '{mount_path}'\n"
+                            f"# Remount or restart provider service if applicable\n"
+                            f"# systemctl restart rclone || docker compose restart"
+                        )
                     root_cause = (
                         f"Storage mount '{mount_path}' is unresponsive or transport endpoint is disconnected.\n"
                         f"Error: {res.get('error')}"

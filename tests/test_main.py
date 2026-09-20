@@ -122,3 +122,63 @@ def test_webhook_proceeds_when_unhealthy(mock_docker, mock_remedy, db_session):
     
     # Assert remediation worker was triggered
     mock_remedy.assert_called_once_with("inc-unhealthy-precheck")
+
+
+@patch("app.main.run_remediation")
+def test_webhook_handles_escaped_json_body(mock_remedy, db_session):
+    target = Target(id="mount:/drives/test/mount", type="system_mount")
+    db_session.add(target)
+    incident = Incident(id="inc-escaped-json", target_id="mount:/drives/test/mount", status="PENDING_USER")
+    db_session.add(incident)
+    db_session.commit()
+
+    with patch("app.system_health.probe_mount", return_value={"healthy": False, "error": "ENOTCONN"}):
+        response = client.post(
+            f"/api/webhooks/inc-escaped-json?token={WEBHOOK_TOKEN}",
+            content='{\\"action\\": \\"fix\\"}',
+            headers={"Content-Type": "application/json"}
+        )
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Remediation triggered"
+
+
+@patch("app.main.run_remediation")
+def test_webhook_handles_query_param_action(mock_remedy, db_session):
+    target = Target(id="query-param-target", type="docker")
+    db_session.add(target)
+    incident = Incident(id="inc-query-param", target_id="query-param-target", status="PENDING_USER")
+    db_session.add(incident)
+    db_session.commit()
+
+    with patch("docker.from_env") as mock_docker:
+        mock_container = MagicMock()
+        mock_container.attrs = {"State": {"Running": False, "Status": "exited"}}
+        mock_client = MagicMock()
+        mock_client.containers.get.return_value = mock_container
+        mock_docker.return_value = mock_client
+
+        response = client.post(
+            f"/api/webhooks/inc-query-param?token={WEBHOOK_TOKEN}&action=fix"
+        )
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Remediation triggered"
+
+
+@patch("app.main.send_followup_notification")
+def test_webhook_system_mount_auto_resolves_when_healthy(mock_notify, db_session):
+    target = Target(id="mount:/drives/test/healthy", type="system_mount")
+    db_session.add(target)
+    incident = Incident(id="inc-mount-healthy", target_id="mount:/drives/test/healthy", status="PENDING_USER")
+    db_session.add(incident)
+    db_session.commit()
+
+    with patch("app.system_health.probe_mount", return_value={"healthy": True, "error": None}):
+        response = client.post(
+            f"/api/webhooks/inc-mount-healthy?token={WEBHOOK_TOKEN}&action=fix"
+        )
+    assert response.status_code == 200
+    assert "Incident was already resolved without action" in response.json()["detail"]
+    db_session.expire_all()
+    inc = db_session.query(Incident).filter_by(id="inc-mount-healthy").first()
+    assert inc.status == "RESOLVED"
+
