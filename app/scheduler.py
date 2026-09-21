@@ -214,9 +214,10 @@ def run_daily_sre_audit():
         from app.stack_watcher import stack_watcher_manager
         results = stack_watcher_manager.audit_all_stacks()
         action_required = [r for r in results if r.get("status") == "ACTION_REQUIRED"]
+        warnings = [r for r in results if r.get("status") == "WARNING"]
         logger.info(
             f"Daily SRE stack audit completed. {len(results)} stack(s) checked, "
-            f"{len(action_required)} action(s) required."
+            f"{len(action_required)} action(s) required, {len(warnings)} warning(s)."
         )
     except Exception as e:
         logger.error(f"Error during daily SRE stack audit: {e}")
