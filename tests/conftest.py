@@ -15,8 +15,11 @@ from app.main import app
 def init_test_db():
     init_db()
     yield
-    SessionLocal.close_all()
-    Base.metadata.drop_all(bind=engine)
+    try:
+        SessionLocal.close_all()
+        Base.metadata.drop_all(bind=engine)
+    except Exception:
+        pass
 
 @pytest.fixture(scope="function")
 def db_session():
