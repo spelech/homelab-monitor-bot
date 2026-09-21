@@ -11,7 +11,12 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./monitorbot.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine_kwargs = {"connect_args": {"check_same_thread": False}}
+if ":memory:" in DATABASE_URL or "mode=memory" in DATABASE_URL:
+    from sqlalchemy.pool import StaticPool
+    engine_kwargs["poolclass"] = StaticPool
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -173,6 +178,8 @@ def init_db():
             db.add(SystemSetting(key="silent_mode", value="false"))
         if not db.query(SystemSetting).filter(SystemSetting.key == "autopilot").first():
             db.add(SystemSetting(key="autopilot", value="false"))
+        if not db.query(SystemSetting).filter(SystemSetting.key == "autopilot_safe_mode").first():
+            db.add(SystemSetting(key="autopilot_safe_mode", value="false"))
         if not db.query(SystemSetting).filter(SystemSetting.key == "maintenance_mode").first():
             db.add(SystemSetting(key="maintenance_mode", value="false"))
         db.commit()

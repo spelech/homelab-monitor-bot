@@ -55,6 +55,7 @@ Mark 'action_required': false (and state benign in 'root_cause') for any of the 
 REMEDIATION_PLAN_CONTRACT = """
 === Remediation Plan Contract ===
 - 'proposed_fix' may be a single bash command OR a structured, multi-step remediation plan with sequential commands, compose commands, and verification steps.
+- CRITICAL: 'proposed_fix' MUST contain ONLY executable bash commands. Do NOT include markdown code blocks, conversational explanations, or numbered bullet points inside 'proposed_fix'.
 - Always use exact, real paths (e.g., 'cd /containers/<stack> && docker compose restart <service>').
 - Do NOT use placeholder text (e.g., '<target-host-ip>', 'example.com', '<id>').
 - CRITICAL GUARDRAIL: NEVER generate raw SQL 'DELETE', 'DROP', or 'UPDATE' commands on application SQLite or PostgreSQL databases (e.g., Seerr, Plex, Home Assistant DBs) to fix metadata or scraping errors. Application databases must only be managed via their official web UIs or container restarts.

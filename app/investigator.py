@@ -10,7 +10,7 @@ import threading
 from datetime import datetime
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from app.database import SessionLocal, Incident, Target
+from app.database import SessionLocal, Incident, Target, get_setting
 from app.qdrant_mem import qdrant_mem
 from app.transcript_logger import log_transcript_event
 
@@ -61,6 +61,36 @@ def call_ai_dispatch_server(prompt: str, model_id: str = None, timeout: int = No
     
     content = choices[0].get("message", {}).get("content", "")
     return content, duration
+
+def call_ai_investigate_session(
+    target: str,
+    error_logs: str,
+    notes: str = "",
+    executor: str = None,
+    max_turns: int = 4,
+    timeout: int = None
+) -> tuple[dict, float]:
+    """Call CLIAgentDispatch SRE interactive investigation endpoint (:8032/v1/investigate)."""
+    target_executor = executor or AI_MODEL
+    req_timeout = timeout or AI_DISPATCH_TIMEOUT
+    url = f"{AI_DISPATCH_URL}/investigate"
+
+    payload = {
+        "target": target,
+        "exit_code": 1,
+        "error_logs": error_logs,
+        "notes": notes,
+        "executor": target_executor,
+        "max_turns": max_turns,
+        "timeout": req_timeout
+    }
+
+    start_time = time.time()
+    resp = requests.post(url, json=payload, timeout=req_timeout)
+    duration = time.time() - start_time
+    resp.raise_for_status()
+
+    return resp.json(), duration
 
 def call_opencode_server(prompt: str, provider_id: str = None, model_id: str = None, timeout: int = 180) -> str:
     """Call headless opencode serve HTTP API."""
@@ -132,6 +162,120 @@ def cleanup_resolved_incidents():
     finally:
         db.close()
 
+def is_fix_safe_for_autopilot(command: str, category: str = "unknown") -> bool:
+    """
+    Tiered autopilot safety evaluation:
+    Returns True ONLY for low-risk, non-destructive remediation commands
+    (e.g., restarting a container/service, bringing up containers with compose, read-only diagnostic checks).
+    Returns False for destructive commands, file modifications, deletions, raw scripts,
+    or dangerous arguments.
+    """
+    if not command or not isinstance(command, str):
+        return False
+
+    cat = str(category or "").strip().lower()
+    if cat in ("destructive", "manual", "security", "unsupported"):
+        return False
+
+    # Sanitize markdown code fences, bullets, and commentary
+    from app.remediator import sanitize_remediation_command
+    clean_cmd = sanitize_remediation_command(command).strip()
+    if not clean_cmd:
+        return False
+
+    # Check for forbidden shell metacharacters: ;, |, >, <, $, `, (, ), {, }
+    # Note: & is allowed only as &&
+    forbidden_chars = set(";|><$`(){}[]*?")
+    # Also check single & (not part of &&)
+    if re.search(r"(?<!&)&(?!&)", clean_cmd):
+        return False
+
+    # Allowed command regex patterns for individual statements
+    # 1. cd to a container directory: cd /containers/... or cd path
+    cd_pattern = re.compile(r"^cd\s+([a-zA-Z0-9_./-]+)$")
+
+    # 2. docker compose restart: docker compose [-f path] restart [services...]
+    dc_restart_pattern = re.compile(r"^docker[- ]compose(?:\s+-f\s+[a-zA-Z0-9_./-]+)?\s+restart(?:\s+[a-zA-Z0-9_.-]+)*$")
+
+    # 3. docker compose up: docker compose [-f path] up -d [--force-recreate] [services...]
+    dc_up_pattern = re.compile(r"^docker[- ]compose(?:\s+-f\s+[a-zA-Z0-9_./-]+)?\s+up\s+(?:-d\s+--force-recreate|--force-recreate\s+-d|-d)(?:\s+[a-zA-Z0-9_.-]+)*$")
+
+    # 4. docker compose start / docker start
+    dc_start_pattern = re.compile(r"^docker[- ]compose(?:\s+-f\s+[a-zA-Z0-9_./-]+)?\s+start(?:\s+[a-zA-Z0-9_.-]+)*$")
+    docker_start_pattern = re.compile(r"^docker\s+start(?:\s+[a-zA-Z0-9_.-]+)+$")
+
+    # 5. docker restart [-t sec] [containers...]
+    docker_restart_pattern = re.compile(r"^docker\s+restart(?:\s+-t\s+\d+)?(?:\s+[a-zA-Z0-9_.-]+)+$")
+
+    # 6. systemctl restart <service>
+    systemctl_restart_pattern = re.compile(r"^systemctl\s+restart\s+[a-zA-Z0-9_.-]+(?:\.service)?$")
+
+    # 7. Diagnostic / verification checks (ps)
+    dc_ps_pattern = re.compile(r"^docker[- ]compose(?:\s+-f\s+[a-zA-Z0-9_./-]+)?\s+ps(?:\s+[a-zA-Z0-9_.-]+)*$")
+    docker_ps_pattern = re.compile(r"^docker\s+ps(?:\s+--filter\s+[a-zA-Z0-9_=.-]+)*$")
+
+    # 8. Safe sleep (up to 60s)
+    sleep_pattern = re.compile(r"^sleep\s+([1-9]|[1-5][0-9]|60)$")
+
+    action_patterns = [
+        dc_restart_pattern,
+        dc_up_pattern,
+        dc_start_pattern,
+        docker_start_pattern,
+        docker_restart_pattern,
+        systemctl_restart_pattern,
+    ]
+
+    safe_patterns = action_patterns + [
+        cd_pattern,
+        dc_ps_pattern,
+        docker_ps_pattern,
+        sleep_pattern,
+    ]
+
+    has_action = False
+
+    # Split into lines and compound statements
+    for line in clean_cmd.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        # Check forbidden characters in line
+        if any(ch in forbidden_chars for ch in line):
+            return False
+
+        # Split chained commands by &&
+        parts = line.split("&&")
+        for part in parts:
+            stmt = part.strip()
+            if not stmt:
+                continue
+
+            # Check cd path safety (no path traversal .. or flag)
+            m_cd = cd_pattern.match(stmt)
+            if m_cd:
+                path = m_cd.group(1)
+                if ".." in path or path.startswith("-"):
+                    return False
+                continue
+
+            # Strip harmless surrounding quotes from arguments if present
+            stmt_normalized = re.sub(r"[\"']", "", stmt)
+
+            matched = False
+            for pattern in safe_patterns:
+                if pattern.match(stmt) or pattern.match(stmt_normalized):
+                    matched = True
+                    if any(ap.match(stmt) or ap.match(stmt_normalized) for ap in action_patterns):
+                        has_action = True
+                    break
+
+            if not matched:
+                return False
+
+    return has_action
+
 def trigger_investigation(incident_id: str):
     logger.info(f"Queueing investigation for incident {incident_id}")
     investigation_queue.put(incident_id)
@@ -185,77 +329,103 @@ def run_investigation_logic(db: Session, incident: Incident):
     exec_duration = 0.0
     current_executor = AI_MODEL
 
-    try:
-        logger.info(f"Dispatching investigation prompt to CLIAgentDispatch HTTP ({AI_DISPATCH_URL}) with model '{AI_MODEL}'...")
-        output, exec_duration = call_ai_dispatch_server(prompt, model_id=AI_MODEL)
-    except Exception as dispatch_err:
-        logger.warning(f"CLIAgentDispatch HTTP failed ({dispatch_err}). Falling back to direct CLI subprocess execution...")
-        start_time = time.time()
-        if "opencode" in AI_MODEL:
-            logger.info(f"Falling back to opencode CLI at {OPENCODE_PATH} for incident {incident_id}...")
-            cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-                exec_duration = time.time() - start_time
-                if result.returncode == 0:
+    # Attempt multi-turn SRE investigation session via CLIAgentDispatch (:8032/v1/investigate)
+    if os.getenv("ENABLE_INTERACTIVE_SRE", "true").lower() == "true":
+        try:
+            logger.info(f"Dispatching interactive SRE session to CLIAgentDispatch ({AI_DISPATCH_URL}/investigate) with executor '{AI_MODEL}'...")
+            inv_data, exec_duration = call_ai_investigate_session(
+                target=incident.target_id,
+                error_logs=incident.error_logs,
+                notes=historical_context,
+                executor=AI_MODEL,
+            )
+            if inv_data.get("root_cause") and inv_data.get("proposed_fix"):
+                output = json.dumps({
+                    "root_cause": inv_data.get("root_cause"),
+                    "proposed_fix": inv_data.get("proposed_fix"),
+                    "category": inv_data.get("category", "unknown"),
+                })
+            else:
+                output = inv_data.get("raw_output")
+
+            for turn in inv_data.get("transcript", []):
+                log_transcript_event(incident_id, "AGENT_TURN", turn)
+        except Exception as interactive_err:
+            logger.info(f"Interactive SRE session endpoint unavailable ({interactive_err}). Falling back to completions...")
+            output = None
+
+    if not output:
+        try:
+            logger.info(f"Dispatching investigation prompt to CLIAgentDispatch HTTP ({AI_DISPATCH_URL}) with model '{AI_MODEL}'...")
+            output, exec_duration = call_ai_dispatch_server(prompt, model_id=AI_MODEL)
+        except Exception as dispatch_err:
+            logger.warning(f"CLIAgentDispatch HTTP failed ({dispatch_err}). Falling back to direct CLI subprocess execution...")
+            start_time = time.time()
+            if "opencode" in AI_MODEL:
+                logger.info(f"Falling back to opencode CLI at {OPENCODE_PATH} for incident {incident_id}...")
+                cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                    exec_duration = time.time() - start_time
+                    if result.returncode == 0:
+                        output = result.stdout
+                    else:
+                        logger.error(f"opencode CLI execution failed: {result.stderr}")
+                        incident.status = "FAILED"
+                        incident.execution_log = f"opencode CLI error: {result.stderr}"
+                        db.commit()
+                        log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                        return
+                except Exception as cli_err:
+                    logger.error(f"opencode CLI error: {cli_err}")
+                    incident.status = "FAILED"
+                    incident.execution_log = f"opencode error: {cli_err}"
+                    db.commit()
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
+                    return
+            elif "agy" in AI_MODEL:
+                logger.info(f"Falling back to agy CLI at {AGY_PATH} using {AGY_MODEL} for incident {incident_id}...")
+                cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                    exec_duration = time.time() - start_time
+                    if result.returncode != 0:
+                        logger.error(f"agy execution failed: {result.stderr}")
+                        incident.status = "FAILED"
+                        incident.execution_log = f"agy error: {result.stderr}"
+                        db.commit()
+                        log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                        return
                     output = result.stdout
-                else:
-                    logger.error(f"opencode CLI execution failed: {result.stderr}")
+                except Exception as agy_err:
+                    logger.error(f"agy execution error: {agy_err}")
                     incident.status = "FAILED"
-                    incident.execution_log = f"opencode CLI error: {result.stderr}"
+                    incident.execution_log = f"agy error: {agy_err}"
                     db.commit()
-                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(agy_err)})
                     return
-            except Exception as cli_err:
-                logger.error(f"opencode CLI error: {cli_err}")
-                incident.status = "FAILED"
-                incident.execution_log = f"opencode error: {cli_err}"
-                db.commit()
-                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
-                return
-        elif "agy" in AI_MODEL:
-            logger.info(f"Falling back to agy CLI at {AGY_PATH} using {AGY_MODEL} for incident {incident_id}...")
-            cmd = [AGY_PATH, "--model", AGY_MODEL, "--dangerously-skip-permissions", "--print", prompt]
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-                exec_duration = time.time() - start_time
-                if result.returncode != 0:
-                    logger.error(f"agy execution failed: {result.stderr}")
+            else:
+                logger.warning(f"Unrecognized AI_MODEL '{AI_MODEL}' for CLI fallback, defaulting to opencode CLI...")
+                cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                    exec_duration = time.time() - start_time
+                    if result.returncode == 0:
+                        output = result.stdout
+                    else:
+                        logger.error(f"CLI execution failed: {result.stderr}")
+                        incident.status = "FAILED"
+                        incident.execution_log = f"CLI error: {result.stderr}"
+                        db.commit()
+                        log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                        return
+                except Exception as cli_err:
+                    logger.error(f"CLI error: {cli_err}")
                     incident.status = "FAILED"
-                    incident.execution_log = f"agy error: {result.stderr}"
+                    incident.execution_log = f"CLI error: {cli_err}"
                     db.commit()
-                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
+                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
                     return
-                output = result.stdout
-            except Exception as agy_err:
-                logger.error(f"agy execution error: {agy_err}")
-                incident.status = "FAILED"
-                incident.execution_log = f"agy error: {agy_err}"
-                db.commit()
-                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(agy_err)})
-                return
-        else:
-            logger.warning(f"Unrecognized AI_MODEL '{AI_MODEL}' for CLI fallback, defaulting to opencode CLI...")
-            cmd = [OPENCODE_PATH, "run", "--auto", "--model", f"{OPENCODE_PROVIDER_ID}/{OPENCODE_MODEL_ID}", prompt]
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-                exec_duration = time.time() - start_time
-                if result.returncode == 0:
-                    output = result.stdout
-                else:
-                    logger.error(f"CLI execution failed: {result.stderr}")
-                    incident.status = "FAILED"
-                    incident.execution_log = f"CLI error: {result.stderr}"
-                    db.commit()
-                    log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(result.stderr)})
-                    return
-            except Exception as cli_err:
-                logger.error(f"CLI error: {cli_err}")
-                incident.status = "FAILED"
-                incident.execution_log = f"CLI error: {cli_err}"
-                db.commit()
-                log_transcript_event(incident_id, "AI_EXECUTION_FAILED", {"error": str(cli_err)})
-                return
 
     logger.info(f"Received output from {current_executor}: {output}")
 
@@ -303,8 +473,8 @@ def run_investigation_logic(db: Session, incident: Incident):
         incident.category = str(category).lower()
 
         # Check autopilot mode or auto-approve exception for reverse_proxy outages
-        from app.database import get_setting
         autopilot_enabled = (get_setting("autopilot") == "true")
+        autopilot_safe_mode = (get_setting("autopilot_safe_mode") == "true")
 
         # Check if external domain probe fails
         external_domain_down = False
@@ -323,17 +493,22 @@ def run_investigation_logic(db: Session, incident: Incident):
             "caddyfile" in (proposed_fix or "").lower()
         )
 
-        auto_approve = autopilot_enabled or (external_domain_down and is_caddy_issue)
+        is_safe = is_fix_safe_for_autopilot(proposed_fix, incident.category or "unknown")
+        autopilot_active = (autopilot_enabled or autopilot_safe_mode) and is_safe
+        emergency_caddy = (external_domain_down and is_caddy_issue)
+
+        auto_approve = autopilot_active or emergency_caddy
 
         log_transcript_event(incident_id, "DIAGNOSIS_PARSED", {
             "root_cause": root_cause,
             "proposed_fix": proposed_fix,
             "category": category,
+            "is_safe_fix": is_safe,
             "auto_approve": auto_approve
         })
 
         if auto_approve:
-            reason = "Autopilot enabled" if autopilot_enabled else "External domains unreachable & reverse proxy issue detected"
+            reason = "Autopilot enabled (safe fix verified)" if autopilot_active else "External domains unreachable & reverse proxy issue detected"
             logger.info(f"Auto-approving remediation ({reason}) for incident {incident_id}")
             incident.status = "FIXING"
             db.commit()

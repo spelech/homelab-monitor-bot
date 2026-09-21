@@ -45,9 +45,13 @@ def test_watcher_graceful_exit_codes_ignored():
     class StopLoopException(Exception):
         pass
 
+    def fake_sleep(seconds):
+        if seconds >= 5:
+            raise StopLoopException()
+
     with patch("docker.from_env", return_value=mock_client), \
          patch("app.watcher.process_failure") as mock_process, \
-         patch("time.sleep", side_effect=StopLoopException):
+         patch("time.sleep", side_effect=fake_sleep):
         try:
             run_watcher()
         except StopLoopException:

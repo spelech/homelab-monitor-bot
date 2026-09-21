@@ -451,3 +451,84 @@ def send_heartbeat_notification():
     send_email_notification(title, message)
 
 
+def send_sre_digest_notification(results: list) -> bool:
+    """
+    Sends a consolidated daily SRE audit digest notification across all stacks.
+    """
+    total_stacks = len(results)
+    active_outages = [r for r in results if r.get("status") == "ACTION_REQUIRED"]
+    active_outages_count = len(active_outages)
+    warnings = [r for r in results if r.get("status") == "WARNING"]
+    warnings_count = len(warnings)
+
+    title = f"📊 Daily SRE Audit: {total_stacks} stacks checked"
+    message_body = (
+        f"📊 Daily SRE Audit: {total_stacks} stacks checked. "
+        f"{active_outages_count} active outages. {warnings_count} warnings logged."
+    )
+
+    if active_outages:
+        message_body += "\n\n🚨 Active Outages:"
+        for outage in active_outages:
+            st_name = outage.get("stack_name", "unknown")
+            root = outage.get("root_cause") or outage.get("summary") or "Action required"
+            message_body += f"\n• {st_name}: {root}"
+
+    if warnings:
+        message_body += "\n\n⚠️ Warnings Logged:"
+        for w in warnings[:10]:
+            st_name = w.get("stack_name", "unknown")
+            sum_txt = w.get("summary") or w.get("root_cause") or "Warnings detected"
+            message_body += f"\n• {st_name}: {sum_txt}"
+        if len(warnings) > 10:
+            message_body += f"\n... and {len(warnings) - 10} more."
+
+    # Always try to send to Telegram as well if configured
+    send_telegram_notification(title, message_body, None)
+
+    priority = "high" if active_outages_count > 0 else "low"
+    headers = {
+        "Title": safe_header(title),
+        "Priority": priority,
+        "Tags": "clipboard",
+    }
+
+    auth = get_auth_header()
+    if auth:
+        headers["Authorization"] = auth
+
+    ntfy_url = os.getenv("NTFY_URL", "https://ntfy.wileyriley.com").rstrip("/")
+    ntfy_topic = os.getenv("NTFY_TOPIC", "alerts")
+    url = f"{ntfy_url}/{ntfy_topic}"
+    logger.info(f"Sending SRE daily digest notification to {url}...")
+
+    try:
+        resp = requests.post(url, data=message_body.encode("utf-8"), headers=headers, timeout=10)
+        if resp.status_code == 200:
+            logger.info("SRE daily digest notification sent successfully.")
+            return True
+        else:
+            logger.error(f"Failed to send SRE digest to NTFY_URL. Status: {resp.status_code}, Body: {resp.text}")
+    except Exception as conn_err:
+        logger.warning(f"Failed to send SRE digest to NTFY_URL ({url}): {conn_err}.")
+
+    # Direct LAN Fallback: Try local ntfy port directly if domain/proxy is down
+    ntfy_fallback = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
+    fallback_url = f"{ntfy_fallback}/{ntfy_topic}"
+    logger.info(f"Attempting direct local LAN ntfy fallback for SRE digest to {fallback_url}...")
+    try:
+        resp = requests.post(fallback_url, data=message_body.encode("utf-8"), headers=headers, timeout=10)
+        if resp.status_code == 200:
+            logger.info(f"SRE daily digest notification sent via local LAN ntfy ({fallback_url})")
+            return True
+        else:
+            logger.error(f"Local LAN ntfy fallback failed for SRE digest. Status: {resp.status_code}, Body: {resp.text}")
+    except Exception as fb_err:
+        logger.warning(f"Local LAN ntfy fallback error for SRE digest: {fb_err}")
+
+    # Immediate Fallback: Email notification via SMTP
+    logger.info("Triggering immediate SMTP email fallback for SRE daily digest...")
+    return bool(send_email_notification(title, message_body))
+
+
+

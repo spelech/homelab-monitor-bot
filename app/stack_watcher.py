@@ -25,6 +25,7 @@ logger = logging.getLogger("StackWatcher")
 ERROR_LOG_PATTERNS = re.compile(
     r"(?i)\b(error|fatal|panic|exception|traceback|critical|fail|failed|unhandled|refused|warn|warning)\b"
 )
+CRITICAL_LOG_PATTERN = re.compile(r"(?i)\b(fatal|panic|critical)\b")
 
 BENIGN_FILTER_PATTERNS = [
     re.compile(r"node\s+--trace-deprecation", re.IGNORECASE),
@@ -527,7 +528,37 @@ class StackWatcherManager:
                 return stack
         return None
 
-    def audit_stack_logs(self, stack_name: str, db: Optional[Session] = None) -> Dict[str, Any]:
+    @staticmethod
+    def _is_container_running_and_healthy(container: Any) -> bool:
+        attrs = getattr(container, "attrs", {}) or {}
+        state = attrs.get("State")
+        if not isinstance(state, dict) or not state:
+            return False
+
+        # Running status check
+        is_running = state.get("Running") is True or state.get("Status") == "running" or getattr(container, "status", "") == "running"
+        if not is_running:
+            return False
+
+        # Explicitly crashed or dead or restarting
+        if state.get("Restarting") is True or state.get("Dead") is True:
+            return False
+        if state.get("Status") in ["exited", "dead", "restarting"]:
+            return False
+
+        # Healthcheck check if defined
+        health = state.get("Health")
+        if isinstance(health, dict):
+            health_status = str(health.get("Status", "")).lower()
+            if health_status == "unhealthy":
+                return False
+            if health_status in ["healthy", "none", ""]:
+                return True
+            return False
+
+        return True
+
+    def audit_stack_logs(self, stack_name: str, db: Optional[Session] = None, notify: bool = True) -> Dict[str, Any]:
         """
         Collects logs for all containers in the given stack, filters 24h error/warning lines,
         runs AI triage to determine if an issue is actionable, creates PENDING_USER Incidents
@@ -582,6 +613,8 @@ class StackWatcherManager:
                 return {
                     "stack_name": stack_name,
                     "status": "HEALTHY",
+                    "incident_id": None,
+                    "incident_ids": [],
                     "error_count": 0,
                     "containers_checked": 0,
                     "summary": f"No containers found for stack '{stack_name}'.",
@@ -628,6 +661,8 @@ class StackWatcherManager:
                 return {
                     "stack_name": stack_name,
                     "status": "HEALTHY",
+                    "incident_id": None,
+                    "incident_ids": [],
                     "error_count": 0,
                     "containers_checked": len(stack_containers),
                     "summary": summary,
@@ -675,6 +710,21 @@ class StackWatcherManager:
                     c_root_cause = c_diag.get("root_cause", "Container errors detected during daily SRE audit.")
                     c_proposed_fix = c_diag.get("proposed_fix", "")
                     c_category = str(c_diag.get("category", "unknown")).lower()
+
+                    # Find matching container in stack_containers
+                    cont_obj = None
+                    for sc in stack_containers:
+                        sc_name = getattr(sc, "name", "") or getattr(sc, "attrs", {}).get("Name", "").lstrip("/")
+                        sc_id = getattr(sc, "id", "") or getattr(sc, "attrs", {}).get("Id", "")
+                        if sc_name == c_name or sc_id == c_name or sc_name.endswith(f"_{c_name}_1") or sc_name.endswith(f"-{c_name}-1"):
+                            cont_obj = sc
+                            break
+
+                    # If container is currently running & healthy, suppress action_required unless crashed or degraded
+                    if cont_obj is not None and self._is_container_running_and_healthy(cont_obj):
+                        cont_lines = container_errors.get(c_name, [])
+                        if not any(CRITICAL_LOG_PATTERN.search(line) for line in cont_lines):
+                            c_action_required = False
 
                     if not primary_root_cause or primary_root_cause == "Container errors detected during daily SRE audit.":
                         primary_root_cause = c_root_cause
@@ -745,9 +795,21 @@ class StackWatcherManager:
                 primary_category = category
                 overall_summary = root_cause
 
-                if action_required:
-                    primary_target_id = list(container_errors.keys())[0] if container_errors else stack_name
+                primary_target_id = list(container_errors.keys())[0] if container_errors else stack_name
+                cont_obj = None
+                for sc in stack_containers:
+                    sc_name = getattr(sc, "name", "") or getattr(sc, "attrs", {}).get("Name", "").lstrip("/")
+                    sc_id = getattr(sc, "id", "") or getattr(sc, "attrs", {}).get("Id", "")
+                    if sc_name == primary_target_id or sc_id == primary_target_id or sc_name.endswith(f"_{primary_target_id}_1") or sc_name.endswith(f"-{primary_target_id}-1"):
+                        cont_obj = sc
+                        break
 
+                if cont_obj is not None and self._is_container_running_and_healthy(cont_obj):
+                    cont_lines = container_errors.get(primary_target_id, []) or [aggregated_errors]
+                    if not any(CRITICAL_LOG_PATTERN.search(line) for line in cont_lines):
+                        action_required = False
+
+                if action_required:
                     # Ensure Target exists
                     target = db.query(Target).filter(Target.id == primary_target_id).first()
                     if not target:
@@ -807,12 +869,13 @@ class StackWatcherManager:
                 db.commit()
 
                 # Trigger notifications
-                for inc in actionable_incidents:
-                    try:
-                        from app.notifier import send_incident_notification
-                        send_incident_notification(inc.id)
-                    except Exception as notif_err:
-                        logger.error(f"Failed to send incident notification for SRE audit {inc.id}: {notif_err}")
+                if notify:
+                    for inc in actionable_incidents:
+                        try:
+                            from app.notifier import send_incident_notification
+                            send_incident_notification(inc.id)
+                        except Exception as notif_err:
+                            logger.error(f"Failed to send incident notification for SRE audit {inc.id}: {notif_err}")
 
                 return {
                     "stack_name": stack_name,
@@ -857,7 +920,7 @@ class StackWatcherManager:
             if close_db_on_exit:
                 db.close()
 
-    def audit_all_stacks(self) -> List[Dict[str, Any]]:
+    def audit_all_stacks(self, send_digest: bool = True) -> List[Dict[str, Any]]:
         """
         Audits logs across all discovered Docker Compose stacks on the host.
         """
@@ -866,7 +929,7 @@ class StackWatcherManager:
         for stack in stacks:
             stack_name = stack["name"]
             try:
-                res = self.audit_stack_logs(stack_name)
+                res = self.audit_stack_logs(stack_name, notify=False)
                 results.append(res)
             except Exception as e:
                 logger.error(f"Error auditing stack '{stack_name}': {e}")
@@ -877,6 +940,14 @@ class StackWatcherManager:
                     "error_count": 0,
                     "containers_checked": 0,
                 })
+
+        if send_digest:
+            try:
+                from app.notifier import send_sre_digest_notification
+                send_sre_digest_notification(results)
+            except Exception as notif_err:
+                logger.error(f"Failed to send SRE digest notification: {notif_err}")
+
         return results
 
 

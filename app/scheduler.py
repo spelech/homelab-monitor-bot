@@ -67,7 +67,16 @@ def check_deferred_and_ignored():
                 continue
 
             # Auto-resolve incident if target container is currently healthy and running
-            if docker_client:
+            # Policy:
+            # 1. Audit incidents (sre_daily_audit) are not auto-resolved simply because the container is running,
+            #    since the container was already running when the audit detected genuine log/health errors.
+            # 2. Reactive incidents must be open for at least 3 minutes (grace/stabilization window)
+            #    before auto-resolving, preventing race conditions where user action buttons fail with "Already processed".
+            created_at = incident.created_at or now
+            is_audit = incident.origin in ("sre_daily_audit", "storage_audit")
+            is_stabilized = (now - created_at) >= timedelta(minutes=3)
+
+            if docker_client and not is_audit and is_stabilized:
                 try:
                     c = docker_client.containers.get(incident.target_id)
                     state = c.attrs.get("State", {})
@@ -75,7 +84,7 @@ def check_deferred_and_ignored():
                     health = state.get("Health", {}).get("Status", "none")
 
                     if is_running and health in ["healthy", "none"]:
-                        logger.info(f"Target '{incident.target_id}' is currently healthy & running. Auto-resolving incident {incident.id}.")
+                        logger.info(f"Target '{incident.target_id}' is currently healthy & running and passed grace window. Auto-resolving incident {incident.id}.")
                         incident.status = "RESOLVED"
                         incident.completed_at = now
                         db.commit()
@@ -214,9 +223,10 @@ def run_daily_sre_audit():
         from app.stack_watcher import stack_watcher_manager
         results = stack_watcher_manager.audit_all_stacks()
         action_required = [r for r in results if r.get("status") == "ACTION_REQUIRED"]
+        warnings = [r for r in results if r.get("status") == "WARNING"]
         logger.info(
             f"Daily SRE stack audit completed. {len(results)} stack(s) checked, "
-            f"{len(action_required)} action(s) required."
+            f"{len(action_required)} action(s) required, {len(warnings)} warning(s)."
         )
     except Exception as e:
         logger.error(f"Error during daily SRE stack audit: {e}")

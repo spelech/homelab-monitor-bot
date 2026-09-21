@@ -1,7 +1,9 @@
+import re
 import time
 import logging
 import subprocess
 import docker
+from typing import Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, Incident, Target
@@ -10,6 +12,140 @@ from app.qdrant_mem import qdrant_mem
 from app.transcript_logger import log_transcript_event
 
 logger = logging.getLogger("Remediator")
+
+VALID_COMMAND_STARTERS = {
+    "docker", "docker-compose", "systemctl", "journalctl", "cd", "curl", "chown", "chmod",
+    "rm", "kill", "fusermount", "umount", "mount", "ping", "apt", "apt-get",
+    "mkdir", "cp", "mv", "touch", "cat", "echo", "printf", "sed", "grep",
+    "awk", "find", "sleep", "export", "source", "service", "sudo", "python",
+    "python3", "pip", "pip3", "npm", "npx", "git", "nc", "wget", "smartctl",
+    "sync", "pkill", "killall", "systemd-run", "ip", "ss", "netstat", "tail",
+    "head", "ls", "sh", "bash", "env", "df", "du", "tar", "gzip", "gunzip",
+    "unzip", "ln", "tee", "date", "which", "whereis", "ps", "top", "htop", "uptime",
+    "reboot", "shutdown", "poweroff", "init", "node"
+}
+
+
+def _is_executable_statement(stmt: str) -> bool:
+    """Checks if a statement starts with an executable binary, script, or environment variable assignment."""
+    if not stmt or not isinstance(stmt, str):
+        return False
+    s = stmt.strip()
+    if not s or s.startswith("#"):
+        return False
+
+    tokens = s.split()
+    if not tokens:
+        return False
+
+    # Handle environment variables prefix e.g. FOO=bar cmd
+    tok_idx = 0
+    while tok_idx < len(tokens) and "=" in tokens[tok_idx] and not tokens[tok_idx].startswith("-"):
+        tok_idx += 1
+
+    if tok_idx >= len(tokens):
+        return False
+
+    first = tokens[tok_idx].strip("\"'();`")
+
+    # If first token is sudo, nohup, exec, check next token
+    if first.lower() in ("sudo", "nohup", "exec") and tok_idx + 1 < len(tokens):
+        first = tokens[tok_idx + 1].strip("\"'();`")
+
+    first_lower = first.lower()
+
+    if first_lower in VALID_COMMAND_STARTERS:
+        return True
+
+    if first.startswith(("./", "/", "~/", "../")):
+        return True
+
+    if first.endswith(".sh") or first.endswith(".py"):
+        return True
+
+    return False
+
+
+def sanitize_remediation_command(proposed_fix: Optional[str]) -> str:
+    """
+    Sanitizes LLM-proposed remediation fixes by:
+    - Stripping markdown code fences (```bash, ```sh, etc.)
+    - Stripping leading numbers (1. , 1) ), bullet markers (- , * , + ), and prompt markers ($ , > )
+    - Extracting executable shell statements starting with known binaries or scripts
+    - Discarding non-executable commentary lines
+    """
+    if not proposed_fix or not isinstance(proposed_fix, str):
+        return ""
+
+    sanitized_lines = []
+    lines = proposed_fix.strip().splitlines()
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Skip markdown code fences
+        if line.startswith("```") or line.startswith("~~~"):
+            continue
+
+        # Skip pure shell comments
+        if line.startswith("#"):
+            continue
+
+        # Strip surrounding backticks if the entire line is wrapped in backticks
+        if line.startswith("`") and line.endswith("`") and len(line) >= 2:
+            line = line[1:-1].strip()
+
+        # 1. Direct check: is the line already an executable statement?
+        if _is_executable_statement(line):
+            sanitized_lines.append(line)
+            continue
+
+        # 2. Strip leading numbers, bullets, or prompt symbols
+        stripped_line = re.sub(r"^(?:[\d]+[\.\)]|\*|-|\+|\$|>)\s*", "", line).strip()
+
+        # Strip surrounding backticks if any
+        if stripped_line.startswith("`") and stripped_line.endswith("`") and len(stripped_line) >= 2:
+            stripped_line = stripped_line[1:-1].strip()
+
+        if _is_executable_statement(stripped_line):
+            sanitized_lines.append(stripped_line)
+            continue
+
+        # 3. Check for colon-separated commands:
+        # e.g., "1. Restart Radarr4K to clear error: cd /containers/media_content && docker compose restart radarr4k"
+        if ":" in stripped_line:
+            parts = stripped_line.split(":")
+            matched_colon = False
+            for idx in range(1, len(parts)):
+                candidate = ":".join(parts[idx:]).strip()
+                if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
+                    candidate = candidate[1:-1].strip()
+                if _is_executable_statement(candidate):
+                    sanitized_lines.append(candidate)
+                    matched_colon = True
+                    break
+            if matched_colon:
+                continue
+
+        # 4. Check for backtick-enclosed commands within commentary:
+        # e.g., "Run `docker compose restart radarr` to fix"
+        backtick_matches = re.findall(r"`([^`]+)`", stripped_line)
+        matched_backtick = False
+        for match in backtick_matches:
+            match = match.strip()
+            if _is_executable_statement(match):
+                sanitized_lines.append(match)
+                matched_backtick = True
+                break
+        if matched_backtick:
+            continue
+
+        # Otherwise, discard non-executable commentary lines
+
+    return "\n".join(sanitized_lines).strip()
+
 
 def run_remediation(incident_id: str):
     db: Session = SessionLocal()
@@ -20,10 +156,25 @@ def run_remediation(incident_id: str):
             return
 
         target_id = incident.target_id
-        proposed_fix = incident.proposed_fix
+        raw_fix = incident.proposed_fix or ""
+        proposed_fix = sanitize_remediation_command(raw_fix)
+        incident.proposed_fix = proposed_fix
         root_cause = incident.root_cause
 
         logger.info(f"Starting remediation for incident {incident_id} (target: {target_id})...")
+
+        if not proposed_fix:
+            logger.warning(f"No executable remediation commands found for incident {incident_id} (target '{target_id}'): {raw_fix}")
+            incident.status = "FAILED"
+            incident.completed_at = datetime.utcnow()
+            incident.execution_log = f"Remediation FAILED: No executable commands could be parsed from proposed fix:\n{raw_fix}"
+            db.commit()
+            send_followup_notification(
+                incident_id,
+                f"Remediation failed for container '{target_id}': No executable commands could be parsed from proposed fix.",
+                success=False
+            )
+            return
 
         # 1.3. Dependency Check: check if any parent dependencies have active incidents
         from app.dependencies import check_parent_incidents
