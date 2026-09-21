@@ -12,6 +12,77 @@ from app.investigator import trigger_investigation
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("DockerWatcher")
 
+RECOVERY_SLEEP_SECONDS = 3
+
+class CrashTracker:
+    """
+    Tracks container exit events in a sliding window to detect flapping / crash-loops
+    and prevent noise from Docker's native restart policies.
+    """
+    IGNORED_EXIT_CODES = {"0", "143", "130"}
+
+    def __init__(self, window_seconds: int = 300, crash_threshold: int = 2):
+        self.window_seconds = window_seconds
+        self.crash_threshold = crash_threshold
+        self._crashes: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def record_and_check_crash_loop(self, container_name: str, exit_code: str | int, now: float | None = None) -> bool:
+        exit_code_str = str(exit_code)
+        if exit_code_str in self.IGNORED_EXIT_CODES:
+            return False
+
+        if now is None:
+            now = time.time()
+
+        with self._lock:
+            history = self._crashes.get(container_name, [])
+            cutoff = now - self.window_seconds
+            history = [ts for ts in history if ts >= cutoff]
+            history.append(now)
+            self._crashes[container_name] = history
+            return len(history) >= self.crash_threshold
+
+    def get_crash_count(self, container_name: str, now: float | None = None) -> int:
+        if now is None:
+            now = time.time()
+        with self._lock:
+            history = self._crashes.get(container_name, [])
+            cutoff = now - self.window_seconds
+            history = [ts for ts in history if ts >= cutoff]
+            self._crashes[container_name] = history
+            return len(history)
+
+    def is_crash_looping(self, container_name: str, now: float | None = None) -> bool:
+        return self.get_crash_count(container_name, now=now) >= self.crash_threshold
+
+    def clear(self, container_name: str | None = None):
+        with self._lock:
+            if container_name:
+                self._crashes.pop(container_name, None)
+            else:
+                self._crashes.clear()
+
+
+crash_tracker = CrashTracker()
+
+
+def is_container_crash_looping(container_name: str, exit_code: str | int) -> bool:
+    return crash_tracker.record_and_check_crash_loop(container_name, exit_code)
+
+
+def is_container_healthy(docker_client, container_name: str) -> bool:
+    try:
+        c = docker_client.containers.get(container_name)
+        state = c.attrs.get("State", {})
+        is_running = state.get("Running", False)
+        health = state.get("Health", {}).get("Status", "none")
+        return bool(is_running and health in ["healthy", "none"])
+    except Exception as e:
+        logger.debug(f"Error checking container health for '{container_name}': {e}")
+        return False
+
+
 def run_watcher():
     while True:
         try:
@@ -47,9 +118,26 @@ def run_watcher():
                 if action == "die":
                     exit_code = str(attributes.get("exitCode", "0"))
                     # Exit code 0 (clean), 143 (SIGTERM graceful stop), 130 (SIGINT) are not crash failures
-                    if exit_code not in ["0", "143", "130"]:
-                        is_failure = True
-                        reason = f"Container died with exit code {exit_code}"
+                    if exit_code not in CrashTracker.IGNORED_EXIT_CODES:
+                        if crash_tracker.record_and_check_crash_loop(container_name, exit_code):
+                            is_failure = True
+                            reason = f"Container is crash-looping (repeated crashes in 5m, exit code {exit_code})"
+                        else:
+                            # Single crash: allow Docker restart policy 3 seconds to bring it back up healthy
+                            logger.info(
+                                f"Container '{container_name}' died with exit code {exit_code}. "
+                                f"Waiting {RECOVERY_SLEEP_SECONDS}s to check if Docker restart policy auto-recovers it..."
+                            )
+                            time.sleep(RECOVERY_SLEEP_SECONDS)
+                            if is_container_healthy(client, container_name):
+                                logger.info(
+                                    f"Container '{container_name}' auto-recovered after transient restart. "
+                                    f"Skipping incident creation."
+                                )
+                                continue
+                            else:
+                                is_failure = True
+                                reason = f"Container died with exit code {exit_code} and failed to recover after 3s"
 
                 # Condition 2: Container health status becomes unhealthy
                 elif action == "health_status: unhealthy":
