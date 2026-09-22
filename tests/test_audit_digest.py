@@ -80,6 +80,7 @@ def test_audit_all_stacks_sends_single_digest_notification():
 
     with patch.object(manager, "discover_stacks", return_value=mock_stacks), \
          patch.object(manager, "audit_stack_logs") as mock_audit, \
+         patch("app.stack_watcher.publish_sre_audit_preview", return_value="https://preview.wileyriley.com/sre-audit-daily/") as mock_preview, \
          patch("app.notifier.send_incident_notification") as mock_single_notify, \
          patch("app.notifier.send_sre_digest_notification") as mock_digest_notify:
 
@@ -93,15 +94,17 @@ def test_audit_all_stacks_sends_single_digest_notification():
 
         # Individual stack alerts must NOT fire from audit_all_stacks
         mock_single_notify.assert_not_called()
-        # Single consolidated digest must be fired
-        mock_digest_notify.assert_called_once_with(results)
+        # Preview publishing must be called
+        mock_preview.assert_called_once_with(results)
+        # Single consolidated digest must be fired with preview_url
+        mock_digest_notify.assert_called_once_with(results, preview_url="https://preview.wileyriley.com/sre-audit-daily/")
         assert len(results) == 3
 
 
 def test_send_sre_digest_notification():
     results = [
         {"stack_name": "media", "status": "HEALTHY", "error_count": 0},
-        {"stack_name": "cloud", "status": "WARNING", "error_count": 3},
+        {"stack_name": "cloud", "status": "WARNING", "error_count": 3, "summary": "Cloud stack is healthy. All warnings are benign token expirations."},
         {"stack_name": "monitoring", "status": "ACTION_REQUIRED", "error_count": 1, "summary": "Grafana down"},
     ]
 
@@ -123,9 +126,51 @@ def test_send_sre_digest_notification():
         data = call_args[1].get("data", b"").decode("utf-8")
 
         assert headers.get("Tags") == "clipboard"
+        assert "view, Full Report" in headers.get("Actions", "")
+        assert "view, Dashboard" in headers.get("Actions", "")
         assert "3 stacks checked" in data
         assert "1 active outages" in data
         assert "1 warnings logged" in data
+        # Cloud stack was benign so it is filtered into clean summary
+        assert "2 stacks clean (1 benign noise filtered)" in data
+        assert len(data) <= 1200
+
+
+def test_is_benign_warning():
+    from app.notifier import is_benign_warning
+
+    assert is_benign_warning("All webservices stack containers are healthy with zero actionable issues.") is True
+    assert is_benign_warning("The sure stack is healthy; all logged events match known benign patterns.") is True
+    assert is_benign_warning("Stack wud is healthy. Both log entries are expected benign noise.") is True
+    assert is_benign_warning("Prowlarr has active connectivity failures to its integrated media apps requiring investigation.") is False
+    assert is_benign_warning("ha-postgres requires attention due to index dimension issues.") is False
+    assert is_benign_warning("uptime-kuma monitors pointing to dead 404 endpoints.") is False
+
+
+def test_extract_concise_summary():
+    from app.notifier import extract_concise_summary
+
+    text = "Stack 'smarthome_core' is healthy. Only ha-postgres requires attention due to ContextCortex RAG schema migration issues causing repeated query failures; all other alerts are expected transient behavior."
+    concise = extract_concise_summary(text, max_chars=80)
+    assert len(concise) <= 85
+    assert "ha-postgres requires attention" in concise
+
+
+def test_generate_sre_audit_html_report():
+    from app.stack_watcher import generate_sre_audit_html_report
+
+    results = [
+        {"stack_name": "media", "status": "HEALTHY", "error_count": 0, "containers_checked": 4},
+        {"stack_name": "ai", "status": "WARNING", "error_count": 5, "containers_checked": 6, "summary": "AI stack is healthy. Benign notices."},
+        {"stack_name": "cameras", "status": "ACTION_REQUIRED", "error_count": 12, "containers_checked": 2, "root_cause": "Frigate disk bottleneck", "proposed_fix": "docker compose restart frigate"},
+    ]
+
+    html = generate_sre_audit_html_report(results)
+    assert "Daily SRE Stack Audit" in html
+    assert "Frigate disk bottleneck" in html
+    assert "docker compose restart frigate" in html
+    assert "cameras" in html
+    assert "media" in html
 
 
 def test_scheduler_run_daily_sre_audit():

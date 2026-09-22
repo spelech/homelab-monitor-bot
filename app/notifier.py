@@ -1,10 +1,12 @@
 import os
+import re
 import logging
 import base64
 import requests
 import html
 import smtplib
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 
 from email.message import EmailMessage
 from email.header import Header
@@ -451,46 +453,184 @@ def send_heartbeat_notification():
     send_email_notification(title, message)
 
 
-def send_sre_digest_notification(results: list) -> bool:
+def is_benign_warning(summary: str) -> bool:
+    """
+    Determines if an audit warning summary represents verified benign noise rather
+    than an actionable issue requiring human attention.
+    """
+    if not summary:
+        return True
+
+    summary_lower = summary.lower()
+
+    # Handle phrases indicating absence of actionable issues
+    has_negated_actionable = "zero actionable" in summary_lower or "no actionable" in summary_lower
+
+    # Positive indicators that attention is needed
+    attention_keywords = [
+        "requiring investigation",
+        "requires attention",
+        "needs investigation",
+        "crash loop",
+        "repeatedly failing",
+        "connectivity failures",
+        "active failures",
+        "active outages",
+        "schema migration failed",
+        "dead 404",
+        "connection refused",
+        "bottleneck",
+        "recording loss",
+    ]
+    if not has_negated_actionable and "actionable" in summary_lower:
+        attention_keywords.append("actionable")
+
+    if any(kw in summary_lower for kw in attention_keywords):
+        return False
+
+    # Indicators that the warnings are purely benign
+    benign_keywords = [
+        "is healthy",
+        "are healthy",
+        "fully operational",
+        "operating normally",
+        "benign",
+        "expected benign noise",
+        "known benign patterns",
+        "no remediation needed",
+        "no corrective action needed",
+        "no containers require",
+        "zero actionable",
+        "no actionable",
+        "non-fatal",
+        "non-impacting",
+        "cosmetic",
+        "expected transient",
+        "false positive",
+    ]
+    return any(kw in summary_lower for kw in benign_keywords)
+
+
+def extract_concise_summary(text: str, max_chars: int = 100) -> str:
+    """
+    Extracts a concise, single-sentence summary suitable for push notification banners.
+    Strips verbose introductory fluff.
+    """
+    if not text:
+        return "Warning detected"
+
+    cleaned = text.strip()
+    cleaned = re.sub(
+        r"^(Stack '?[\w\-]+'? is healthy\.\s*|The '?[\w\-]+'? stack is (?:healthy|operating normally)\.\s*)",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"^Only\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"^(?:All\s+\d+\s+containers\s+in\s+[\w\-]+\s+stack\s+are\s+running\s+healthy\.\s*)",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    first_sentence = sentences[0].strip() if sentences else cleaned
+
+    if len(first_sentence) > max_chars:
+        truncated = first_sentence[:max_chars].rsplit(" ", 1)[0]
+        return f"{truncated}..."
+    return first_sentence
+
+
+def send_sre_digest_notification(results: list, preview_url: Optional[str] = None) -> bool:
     """
     Sends a consolidated daily SRE audit digest notification across all stacks.
+    Filters benign log noise so the user only sees actionable/notable issues,
+    enforces strict character limits to prevent push notification cutoff,
+    and attaches action buttons linking directly to the full report and dashboard.
     """
     total_stacks = len(results)
     active_outages = [r for r in results if r.get("status") == "ACTION_REQUIRED"]
     active_outages_count = len(active_outages)
-    warnings = [r for r in results if r.get("status") == "WARNING"]
-    warnings_count = len(warnings)
+    all_warnings = [r for r in results if r.get("status") == "WARNING"]
+    warnings_count = len(all_warnings)
 
-    title = f"📊 Daily SRE Audit: {total_stacks} stacks checked"
+    attention_needed = []
+    clean_or_benign = []
+
+    for r in results:
+        status = r.get("status")
+        if status == "ACTION_REQUIRED":
+            continue
+        summary = r.get("summary") or r.get("root_cause") or ""
+        if status == "WARNING" and not is_benign_warning(summary):
+            attention_needed.append(r)
+        else:
+            clean_or_benign.append(r)
+
+    clean_count = len(clean_or_benign)
+
+    if active_outages_count > 0:
+        title = f"🚨 Daily SRE Audit: {active_outages_count} Outage(s)"
+        priority = "high"
+        tag = "warning,rotating_light"
+    elif len(attention_needed) > 0:
+        title = f"⚠️ Daily SRE Audit: {len(attention_needed)} Attention Item(s)"
+        priority = "default"
+        tag = "warning,clipboard"
+    else:
+        title = f"✅ Daily SRE Audit: All {total_stacks} Stacks Clean"
+        priority = "low"
+        tag = "white_check_mark,clipboard"
+
+    # Base opening line preserves backward compatibility with test assertions
     message_body = (
         f"📊 Daily SRE Audit: {total_stacks} stacks checked. "
         f"{active_outages_count} active outages. {warnings_count} warnings logged."
     )
 
     if active_outages:
-        message_body += "\n\n🚨 Active Outages:"
+        message_body += f"\n\n🚨 Active Outages ({len(active_outages)}):"
         for outage in active_outages:
             st_name = outage.get("stack_name", "unknown")
-            root = outage.get("root_cause") or outage.get("summary") or "Action required"
+            root = extract_concise_summary(outage.get("root_cause") or outage.get("summary") or "Action required")
             message_body += f"\n• {st_name}: {root}"
 
-    if warnings:
-        message_body += "\n\n⚠️ Warnings Logged:"
-        for w in warnings[:10]:
-            st_name = w.get("stack_name", "unknown")
-            sum_txt = w.get("summary") or w.get("root_cause") or "Warnings detected"
+    if attention_needed:
+        message_body += f"\n\n⚠️ Needs Attention ({len(attention_needed)}):"
+        for att in attention_needed[:8]:
+            st_name = att.get("stack_name", "unknown")
+            sum_txt = extract_concise_summary(att.get("summary") or att.get("root_cause") or "Attention required")
             message_body += f"\n• {st_name}: {sum_txt}"
-        if len(warnings) > 10:
-            message_body += f"\n... and {len(warnings) - 10} more."
+        if len(attention_needed) > 8:
+            message_body += f"\n... and {len(attention_needed) - 8} more."
+
+    benign_filtered = warnings_count - len(attention_needed)
+    if benign_filtered > 0:
+        message_body += f"\n\n✅ {clean_count} stacks clean ({benign_filtered} benign noise filtered)"
+    else:
+        message_body += f"\n\n✅ {clean_count} stacks clean & healthy"
+
+    report_url = preview_url or os.getenv("SRE_REPORT_URL", "https://preview.wileyriley.com/sre-audit-daily/")
+    dashboard_url = os.getenv("WEBHOOK_BASE_URL", "https://monitorbot.wileyriley.com").rstrip("/")
+    message_body += f"\n\n📄 Full Report: {report_url}"
+
+    # Enforce strict length cap to prevent NTFY mobile push truncation
+    if len(message_body) > 1200:
+        message_body = message_body[:1150].rsplit("\n", 1)[0] + f"\n... [Report truncated: see {report_url}]"
 
     # Always try to send to Telegram as well if configured
     send_telegram_notification(title, message_body, None)
 
-    priority = "high" if active_outages_count > 0 else "low"
+    # NTFY Action buttons
+    actions_str = f"view, Full Report, {report_url}; view, Dashboard, {dashboard_url}"
+
     headers = {
         "Title": safe_header(title),
         "Priority": priority,
         "Tags": "clipboard",
+        "Actions": actions_str,
     }
 
     auth = get_auth_header()
@@ -516,8 +656,14 @@ def send_sre_digest_notification(results: list) -> bool:
     ntfy_fallback = os.getenv("NTFY_FALLBACK_URL", "http://localhost:9010").rstrip("/")
     fallback_url = f"{ntfy_fallback}/{ntfy_topic}"
     logger.info(f"Attempting direct local LAN ntfy fallback for SRE digest to {fallback_url}...")
+
+    local_dashboard = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://10.0.0.10:9013").rstrip("/")
+    local_report = "http://preview.lan/sre-audit-daily/"
+    fallback_headers = dict(headers)
+    fallback_headers["Actions"] = f"view, Full Report, {local_report}; view, Dashboard, {local_dashboard}"
+
     try:
-        resp = requests.post(fallback_url, data=message_body.encode("utf-8"), headers=headers, timeout=10)
+        resp = requests.post(fallback_url, data=message_body.encode("utf-8"), headers=fallback_headers, timeout=10)
         if resp.status_code == 200:
             logger.info(f"SRE daily digest notification sent via local LAN ntfy ({fallback_url})")
             return True

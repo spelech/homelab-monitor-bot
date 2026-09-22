@@ -923,6 +923,8 @@ class StackWatcherManager:
     def audit_all_stacks(self, send_digest: bool = True) -> List[Dict[str, Any]]:
         """
         Audits logs across all discovered Docker Compose stacks on the host.
+        Publishes an interactive HTML digest report to Agent Preview and sends
+        a consolidated push notification.
         """
         stacks = self.discover_stacks()
         results = []
@@ -942,15 +944,156 @@ class StackWatcherManager:
                 })
 
         if send_digest:
+            preview_url = None
+            try:
+                preview_url = publish_sre_audit_preview(results)
+            except Exception as prev_err:
+                logger.debug(f"Failed to publish SRE audit report to agent-preview: {prev_err}")
+
             try:
                 from app.notifier import send_sre_digest_notification
-                send_sre_digest_notification(results)
+                send_sre_digest_notification(results, preview_url=preview_url)
             except Exception as notif_err:
                 logger.error(f"Failed to send SRE digest notification: {notif_err}")
 
         return results
 
 
+def generate_sre_audit_html_report(results: List[Dict[str, Any]]) -> str:
+    """
+    Renders an HTML report summarizing the daily SRE audit results across all stacks.
+    Styled with Tailwind dark theme.
+    """
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    total_stacks = len(results)
+    active_outages = [r for r in results if r.get("status") == "ACTION_REQUIRED"]
+    all_warnings = [r for r in results if r.get("status") == "WARNING"]
+
+    from app.notifier import is_benign_warning
+    attention_needed = [r for r in all_warnings if not is_benign_warning(r.get("summary") or r.get("root_cause") or "")]
+    clean_or_benign = [
+        r for r in results
+        if r.get("status") == "HEALTHY" or (r.get("status") == "WARNING" and is_benign_warning(r.get("summary") or r.get("root_cause") or ""))
+    ]
+
+    html = f"""
+    <div class="mb-8 border-b border-slate-800 pb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-white tracking-tight">Daily SRE Stack Audit</h1>
+                <p class="text-sm text-slate-400 mt-1">Generated at {now_str}</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <span class="px-3 py-1 bg-slate-800 text-slate-300 rounded-full text-xs font-medium">Total: {total_stacks}</span>
+                <span class="px-3 py-1 bg-emerald-950 text-emerald-400 border border-emerald-800/50 rounded-full text-xs font-medium">Clean: {len(clean_or_benign)}</span>
+                <span class="px-3 py-1 bg-amber-950 text-amber-400 border border-amber-800/50 rounded-full text-xs font-medium">Attention: {len(attention_needed)}</span>
+                <span class="px-3 py-1 bg-rose-950 text-rose-400 border border-rose-800/50 rounded-full text-xs font-medium">Outages: {len(active_outages)}</span>
+            </div>
+        </div>
+    </div>
+    """
+
+    if active_outages:
+        html += """
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold text-rose-400 flex items-center gap-2 mb-4">
+                <span>🚨</span> Active Outages & Required Actions
+            </h2>
+            <div class="space-y-4">
+        """
+        for o in active_outages:
+            st_name = o.get("stack_name", "unknown")
+            root = o.get("root_cause") or o.get("summary") or "Action required"
+            fix = o.get("proposed_fix", "")
+            fix_html = f'<div class="mt-2 bg-slate-950 p-3 rounded text-xs font-mono text-emerald-400 border border-slate-800"><code>{fix}</code></div>' if fix else ''
+            html += f"""
+                <div class="bg-rose-950/20 border border-rose-900/40 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-rose-200 text-base">{st_name}</span>
+                        <span class="text-xs bg-rose-900/60 text-rose-300 px-2 py-0.5 rounded font-mono">ACTION_REQUIRED</span>
+                    </div>
+                    <p class="text-sm text-slate-300">{root}</p>
+                    {fix_html}
+                </div>
+            """
+        html += "</div></div>"
+
+    if attention_needed:
+        html += """
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold text-amber-400 flex items-center gap-2 mb-4">
+                <span>⚠️</span> Stacks Requiring Attention
+            </h2>
+            <div class="space-y-4">
+        """
+        for a in attention_needed:
+            st_name = a.get("stack_name", "unknown")
+            sum_txt = a.get("summary") or a.get("root_cause") or "Attention required"
+            errs = a.get("error_count", 0)
+            html += f"""
+                <div class="bg-amber-950/20 border border-amber-900/40 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-amber-200 text-base">{st_name}</span>
+                        <span class="text-xs bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded font-mono">{errs} errors/warnings</span>
+                    </div>
+                    <p class="text-sm text-slate-300">{sum_txt}</p>
+                </div>
+            """
+        html += "</div></div>"
+
+    if clean_or_benign:
+        html += f"""
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold text-emerald-400 flex items-center gap-2 mb-4">
+                <span>✅</span> Healthy & Clean Stacks ({len(clean_or_benign)})
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        """
+        for c in clean_or_benign:
+            st_name = c.get("stack_name", "unknown")
+            containers = c.get("containers_checked", 0)
+            errs = c.get("error_count", 0)
+            note = "0 errors" if errs == 0 else f"{errs} benign notices"
+            html += f"""
+                <div class="bg-slate-900/50 border border-slate-800 rounded-lg p-3 flex items-center justify-between">
+                    <div>
+                        <span class="font-medium text-slate-200 text-sm">{st_name}</span>
+                        <span class="text-xs text-slate-500 block">{containers} container(s)</span>
+                    </div>
+                    <span class="text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-900/40 px-2 py-0.5 rounded font-mono">{note}</span>
+                </div>
+            """
+        html += "</div></div>"
+
+    return html
+
+
+def publish_sre_audit_preview(results: List[Dict[str, Any]]) -> Optional[str]:
+    """
+    Renders and publishes the SRE audit report to Agent Preview Hub.
+    Returns the HTTPS preview URL on success, or None on failure.
+    """
+    try:
+        html_content = generate_sre_audit_html_report(results)
+        cmd = [
+            "agent-preview", "text", "sre-audit-daily", html_content,
+            "--title", "Daily SRE Audit",
+            "--category", "SRE Audit",
+            "--keep"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if res.returncode == 0:
+            logger.info("Successfully published SRE audit report to Agent Preview Hub (sre-audit-daily).")
+            return "https://preview.wileyriley.com/sre-audit-daily/"
+        else:
+            logger.warning(f"Failed to publish SRE audit report via agent-preview: {res.stderr}")
+            return None
+    except Exception as e:
+        logger.debug(f"Agent preview publishing skipped: {e}")
+        return None
+
+
 # Global singleton instance
 stack_watcher_manager = StackWatcherManager()
+
 
