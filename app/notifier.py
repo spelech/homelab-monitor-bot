@@ -520,27 +520,33 @@ def extract_concise_summary(text: str, max_chars: int = 100) -> str:
         return "Warning detected"
 
     cleaned = text.strip()
+    # Strip opening generic status phrases like "The monitoring stack is mostly healthy with two actionable items:"
     cleaned = re.sub(
-        r"^(Stack '?[\w\-]+'? is healthy\.\s*|The '?[\w\-]+'? stack is (?:healthy|operating normally)\.\s*)",
+        r"^(?:(?:The\s+)?['\"]?[\w\-]+['\"]?\s+stack\s+is\s+(?:mostly\s+)?healthy[.,;:]*\s*|Stack\s+(?:['\"]?[\w\-]+['\"]?\s+)?is\s+healthy[.,;:]*\s*)",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"^(?:with\s+)?(?:two|one|\d+)?\s*(?:independent\s+|actionable\s+)?(?:items|issues)?:?\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"^(?:All\s+\d+\s+containers\s+in\s+[\w\-]+\s+stack\s+are\s+running\s+healthy[.,;:]*\s*)",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
     cleaned = re.sub(r"^Only\s+", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(
-        r"^(?:All\s+\d+\s+containers\s+in\s+[\w\-]+\s+stack\s+are\s+running\s+healthy\.\s*)",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
 
-    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    first_sentence = sentences[0].strip() if sentences else cleaned
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", cleaned) if s.strip()]
+    target_sentence = sentences[0] if sentences else cleaned
 
-    if len(first_sentence) > max_chars:
-        truncated = first_sentence[:max_chars].rsplit(" ", 1)[0]
-        return f"{truncated}..."
-    return first_sentence
+    if len(target_sentence) > max_chars:
+        target_sentence = target_sentence[:max_chars].rsplit(" ", 1)[0] + "..."
+    return target_sentence
 
 
 def send_sre_digest_notification(results: list, preview_url: Optional[str] = None) -> bool:
