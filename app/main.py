@@ -18,7 +18,7 @@ from app.remediator import run_remediation
 from app.notifier import send_followup_notification
 
 # Import modular routers
-from app.routers import incidents, upgrades, settings, usage, stacks
+from app.routers import incidents, upgrades, settings, usage, stacks, audits
 
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -89,6 +89,7 @@ app.include_router(upgrades.router)
 app.include_router(settings.router)
 app.include_router(usage.router)
 app.include_router(stacks.router)
+app.include_router(audits.router)
 
 # Mount frontend assets if compiled dist exists
 if os.path.exists(FRONTEND_DIST):
