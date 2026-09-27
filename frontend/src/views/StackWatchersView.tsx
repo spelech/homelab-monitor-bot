@@ -345,20 +345,44 @@ export const StackWatchersView: React.FC<StackWatchersViewProps> = ({
 
         {/* Filter / Search Bar */}
         <div className="flex-row" style={{ marginTop: '1rem', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div className="flex-row gap-sm" style={{ flex: 1, minWidth: '240px', maxWidth: '420px', position: 'relative' }}>
-            <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <div 
+            style={{ 
+              flex: 1, 
+              minWidth: '240px', 
+              maxWidth: '420px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              background: 'var(--bg-input)', 
+              border: '1px solid var(--border-subtle)', 
+              borderRadius: 'var(--radius-sm)', 
+              padding: '0 0.75rem', 
+              minHeight: '40px', 
+              boxSizing: 'border-box' 
+            }}
+          >
+            <Search size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginRight: '0.5rem' }} />
             <input
               type="text"
-              className="input-text"
               placeholder="Search stack name, container, or image..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '2.25rem', fontSize: '0.85rem' }}
+              style={{ 
+                flex: 1, 
+                background: 'transparent', 
+                border: 'none', 
+                outline: 'none', 
+                color: 'var(--text-primary)', 
+                fontFamily: 'var(--font-sans)', 
+                fontSize: '0.85rem',
+                minWidth: 0,
+                padding: '0.5rem 0'
+              }}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '0.2rem', marginLeft: '0.25rem' }}
+                title="Clear search"
               >
                 <X size={14} />
               </button>

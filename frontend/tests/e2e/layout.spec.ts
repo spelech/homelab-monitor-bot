@@ -205,6 +205,9 @@ test.describe('Responsive Layout & Overflow Audits', () => {
     // Assert zero DOM horizontal overflow
     await expect(page).toHaveNoLayoutOverflow();
 
+    // Assert no elements or pills collide/overlap with text
+    await expect(page).toHaveNoElementCollisions();
+
     // Assert mobile viewport metadata compliance
     await expect(page).toHaveMobileFit();
   });
@@ -218,6 +221,7 @@ test.describe('Responsive Layout & Overflow Audits', () => {
     await page.waitForTimeout(300);
 
     await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
   });
 
   test('incident modal dialog fits within mobile viewport with zero bleed', async ({ page }) => {
@@ -243,6 +247,7 @@ test.describe('Responsive Layout & Overflow Audits', () => {
     await page.waitForTimeout(300);
 
     await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
   });
 
   test('daily audits tab and bulk remediation controls render cleanly without overflow', async ({ page }) => {
@@ -256,6 +261,7 @@ test.describe('Responsive Layout & Overflow Audits', () => {
     // Verify view has loaded
     await expect(page.locator('text=30-Day Daily SRE Audits')).toBeVisible();
     await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
 
     // Select the actionable item to trigger the bulk remediation toolbar
     await page.click('button[title*="Select item for bulk remediation"]');
@@ -263,5 +269,47 @@ test.describe('Responsive Layout & Overflow Audits', () => {
 
     // Assert zero layout overflow with bulk toolbar visible
     await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
+  });
+
+  test('stack SRE accordion expansion renders cleanly without collisions', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Stack SRE")');
+    await page.waitForTimeout(300);
+
+    // Click first stack to expand container table
+    await page.click('text=media_content');
+    await page.waitForTimeout(300);
+
+    await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
+  });
+
+  test('target fleet tab renders cleanly without collisions', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Target Fleet")');
+    await page.waitForTimeout(300);
+
+    await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
+  });
+
+  test('incident history tab renders cleanly without collisions', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Incident History")');
+    await page.waitForTimeout(300);
+
+    await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
+  });
+
+  test('ai spend tracker tab renders cleanly without collisions', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("AI Spend Tracker")');
+    await page.waitForTimeout(300);
+
+    await expect(page).toHaveNoLayoutOverflow();
+    await expect(page).toHaveNoElementCollisions();
   });
 });
+

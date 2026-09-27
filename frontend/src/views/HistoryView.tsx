@@ -60,52 +60,108 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ history }) => {
           <div className="text-muted" style={{ fontSize: '0.9rem' }}>No historical incidents match the selected filter.</div>
         </div>
       ) : (
-        <div className="card" style={{ padding: '0.5rem' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '0.6rem 0.75rem' }}>TARGET</th>
-                <th style={{ padding: '0.6rem 0.75rem' }}>STATUS</th>
-                <th style={{ padding: '0.6rem 0.75rem' }}>CATEGORY</th>
-                <th style={{ padding: '0.6rem 0.75rem' }}>ROOT CAUSE</th>
-                <th style={{ padding: '0.6rem 0.75rem' }}>COMPLETED</th>
-                <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>ACTIONS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(inc => (
-                <tr key={inc.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                  <td className="font-mono" style={{ padding: '0.6rem 0.75rem', fontWeight: 700 }}>
-                    {inc.target_id}
-                  </td>
-                  <td style={{ padding: '0.6rem 0.75rem' }}>
+        <>
+          {/* Desktop Table View (> 768px) */}
+          <div className="card history-table-desktop" style={{ padding: '0.5rem', maxWidth: '100%', boxSizing: 'border-box' }}>
+            <div style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '0.6rem 0.75rem' }}>TARGET</th>
+                    <th style={{ padding: '0.6rem 0.75rem' }}>STATUS</th>
+                    <th style={{ padding: '0.6rem 0.75rem' }}>CATEGORY</th>
+                    <th style={{ padding: '0.6rem 0.75rem' }}>ROOT CAUSE</th>
+                    <th style={{ padding: '0.6rem 0.75rem' }}>COMPLETED</th>
+                    <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(inc => (
+                    <tr key={inc.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                      <td className="font-mono" style={{ padding: '0.6rem 0.75rem', fontWeight: 700 }}>
+                        {inc.target_id}
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem' }}>
+                        <span className={`badge ${inc.status === 'RESOLVED' ? 'badge-healthy' : 'badge-danger'}`} style={{ fontSize: '0.7rem' }}>
+                          {inc.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem' }}>
+                        <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{inc.category || 'unknown'}</span>
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem', maxWidth: '240px' }}>
+                        <span 
+                          className="text-secondary" 
+                          style={{ 
+                            fontSize: '0.8rem', 
+                            display: 'block', 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis', 
+                            whiteSpace: 'nowrap',
+                            maxWidth: '100%'
+                          }}
+                          title={inc.root_cause || ''}
+                        >
+                          {inc.root_cause || '-'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {inc.completed_at ? new Date(inc.completed_at).toLocaleString() : '-'}
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
+                        <button
+                          onClick={() => setSelectedIncident(inc)}
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                        >
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile / Tablet Cards View (<= 768px) */}
+          <div className="history-cards-mobile flex-col gap-sm" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+            {filtered.map(inc => (
+              <div key={inc.id} className="card" style={{ padding: '0.85rem 1rem', width: '100%', boxSizing: 'border-box' }}>
+                <div className="flex-row flex-wrap gap-sm" style={{ justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span className="font-mono" style={{ fontWeight: 700, fontSize: '0.95rem' }}>{inc.target_id}</span>
+                  <div className="flex-row flex-wrap gap-xs">
                     <span className={`badge ${inc.status === 'RESOLVED' ? 'badge-healthy' : 'badge-danger'}`} style={{ fontSize: '0.7rem' }}>
                       {inc.status}
                     </span>
-                  </td>
-                  <td style={{ padding: '0.6rem 0.75rem' }}>
-                    <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{inc.category || 'unknown'}</span>
-                  </td>
-                  <td style={{ padding: '0.6rem 0.75rem', maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <span className="text-secondary" style={{ fontSize: '0.8rem' }}>{inc.root_cause || '-'}</span>
-                  </td>
-                  <td style={{ padding: '0.6rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>
+                      {inc.category || 'unknown'}
+                    </span>
+                  </div>
+                </div>
+
+                {inc.root_cause && (
+                  <div className="text-secondary" style={{ fontSize: '0.825rem', marginBottom: '0.5rem', lineHeight: 1.4 }}>
+                    {inc.root_cause}
+                  </div>
+                )}
+
+                <div className="flex-row flex-wrap gap-sm" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                  <span className="text-muted" style={{ fontSize: '0.75rem' }}>
                     {inc.completed_at ? new Date(inc.completed_at).toLocaleString() : '-'}
-                  </td>
-                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
-                    <button
-                      onClick={() => setSelectedIncident(inc)}
-                      className="btn btn-secondary btn-sm"
-                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
-                    >
-                      Details
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </span>
+                  <button
+                    onClick={() => setSelectedIncident(inc)}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                  >
+                    Details
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <IncidentModal

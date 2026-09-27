@@ -1,6 +1,6 @@
 import React from 'react';
 import { useUsage } from '../hooks/useUsage';
-import { DollarSign, Cpu, Zap, Activity, RefreshCw } from 'lucide-react';
+import { DollarSign, Brain, Zap, Activity, RefreshCw } from 'lucide-react';
 
 export const SpendTrackerView: React.FC = () => {
   const { summary, loading, refresh } = useUsage();
@@ -28,7 +28,7 @@ export const SpendTrackerView: React.FC = () => {
           <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)' }}>
             <DollarSign size={22} />
           </div>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: 0 }}>
             <div className="stat-value text-emerald">
               ${summary?.total_cost_usd?.toFixed(4) || '0.0000'}
             </div>
@@ -38,9 +38,9 @@ export const SpendTrackerView: React.FC = () => {
 
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--status-info)' }}>
-            <Cpu size={22} />
+            <Brain size={22} />
           </div>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: 0 }}>
             <div className="stat-value">
               {summary?.total_tokens?.toLocaleString() || '0'}
             </div>
@@ -52,7 +52,7 @@ export const SpendTrackerView: React.FC = () => {
           <div className="stat-icon" style={{ background: 'rgba(168, 85, 247, 0.15)', color: 'var(--status-purple)' }}>
             <Zap size={22} />
           </div>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: 0 }}>
             <div className="stat-value">
               {summary?.total_calls || 0}
             </div>
@@ -64,7 +64,7 @@ export const SpendTrackerView: React.FC = () => {
           <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--status-warning)' }}>
             <Activity size={22} />
           </div>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: 0 }}>
             <div className="stat-value" style={{ fontSize: '1.1rem' }}>
               {summary?.litellm_status === 'healthy' ? (
                 <span className="text-emerald">Online (:8448)</span>

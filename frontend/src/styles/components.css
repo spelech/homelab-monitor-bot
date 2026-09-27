@@ -171,19 +171,23 @@
   }
 }
 
-/* Badges */
+/* Badges & Status Pills */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   font-size: 0.75rem;
   font-weight: 700;
-  padding: 0.2rem 0.6rem;
+  padding: 0.2rem 0.65rem;
+  line-height: 1.25;
   border-radius: var(--radius-pill);
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
   max-width: 100%;
-  white-space: normal;
+  white-space: nowrap;
+  vertical-align: middle;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .badge-healthy {
@@ -420,4 +424,23 @@
   word-break: break-all;
   overflow-wrap: anywhere;
   box-sizing: border-box;
+}
+
+/* Responsive Table to Cards Pattern */
+@media (max-width: 768px) {
+  .history-table-desktop {
+    display: none !important;
+  }
+  .history-cards-mobile {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .history-table-desktop {
+    display: block !important;
+  }
+  .history-cards-mobile {
+    display: none !important;
+  }
 }

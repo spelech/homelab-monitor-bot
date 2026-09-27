@@ -25,8 +25,8 @@ export const StatusHeader: React.FC<StatusHeaderProps> = ({
       <div className="flex-row flex-wrap gap-md" style={{ justifyContent: 'space-between', width: '100%' }}>
         
         {/* Maintenance Controls */}
-        <div className="flex-row flex-wrap gap-xs" style={{ alignItems: 'center' }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginRight: '0.25rem' }}>
+        <div className="flex-row flex-wrap gap-sm" style={{ alignItems: 'center' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginRight: '0.5rem' }}>
             Maintenance:
           </span>
           {maintenanceActive ? (
