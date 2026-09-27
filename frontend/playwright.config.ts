@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const TEST_PORT = 5188;
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30000,
@@ -10,7 +12,7 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: `http://localhost:${TEST_PORT}`,
     trace: 'on-first-retry',
   },
   projects: [
@@ -34,9 +36,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    port: 5173,
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev -- --port ${TEST_PORT} --strictPort`,
+    port: TEST_PORT,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });

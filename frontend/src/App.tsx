@@ -15,6 +15,7 @@ import { SpendTrackerView } from './views/SpendTrackerView';
 import { MemorySearchView } from './views/MemorySearchView';
 import { TargetsFleetView } from './views/TargetsFleetView';
 import { HistoryView } from './views/HistoryView';
+import { DailyAuditsView } from './views/DailyAuditsView';
 
 export const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -83,6 +84,8 @@ export const App: React.FC = () => {
             onIncidentAction={triggerAction}
           />
         )}
+
+        {activeTab === 'audits' && <DailyAuditsView />}
 
         {activeTab === 'upgrades' && (
           <UpgradeHubView

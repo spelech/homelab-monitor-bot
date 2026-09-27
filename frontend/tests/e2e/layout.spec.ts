@@ -244,4 +244,24 @@ test.describe('Responsive Layout & Overflow Audits', () => {
 
     await expect(page).toHaveNoLayoutOverflow();
   });
+
+  test('daily audits tab and bulk remediation controls render cleanly without overflow', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.app-container')).toBeVisible();
+
+    // Click Daily Audits tab
+    await page.click('button:has-text("Daily Audits")');
+    await page.waitForTimeout(300);
+
+    // Verify view has loaded
+    await expect(page.locator('text=30-Day Daily SRE Audits')).toBeVisible();
+    await expect(page).toHaveNoLayoutOverflow();
+
+    // Select the actionable item to trigger the bulk remediation toolbar
+    await page.click('button[title*="Select item for bulk remediation"]');
+    await expect(page.locator('text=item(s) selected')).toBeVisible();
+
+    // Assert zero layout overflow with bulk toolbar visible
+    await expect(page).toHaveNoLayoutOverflow();
+  });
 });
