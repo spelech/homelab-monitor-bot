@@ -22,10 +22,10 @@ export const StatusHeader: React.FC<StatusHeaderProps> = ({
 }) => {
   return (
     <div className="card" style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem' }}>
-      <div className="flex-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="flex-row flex-wrap gap-md" style={{ justifyContent: 'space-between', width: '100%' }}>
         
         {/* Maintenance Controls */}
-        <div className="flex-row gap-sm" style={{ flexWrap: 'wrap' }}>
+        <div className="flex-row flex-wrap gap-xs" style={{ alignItems: 'center' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginRight: '0.25rem' }}>
             Maintenance:
           </span>

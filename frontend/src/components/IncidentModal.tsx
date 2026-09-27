@@ -70,10 +70,10 @@ export const IncidentModal: React.FC<IncidentModalProps> = ({ incident, onClose 
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: '850px', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '100%', maxWidth: 'min(850px, 94vw)', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
         {/* Modal Header */}
         <div className="modal-header">
-          <div className="flex-row gap-sm">
+          <div className="flex-row flex-wrap gap-sm">
             <span style={{ fontWeight: 800, fontSize: '1.1rem', fontFamily: 'var(--font-mono)' }}>
               {incident.target_id}
             </span>
@@ -85,7 +85,7 @@ export const IncidentModal: React.FC<IncidentModalProps> = ({ incident, onClose 
         </div>
 
         {/* Modal Body */}
-        <div className="modal-body" style={{ overflowY: 'auto' }}>
+        <div className="modal-body" style={{ overflow: 'auto', width: '100%' }}>
           {/* Metadata */}
           <div className="grid-cols-2" style={{ marginBottom: '1.25rem' }}>
             <div className="card" style={{ padding: '0.75rem' }}>
@@ -110,8 +110,8 @@ export const IncidentModal: React.FC<IncidentModalProps> = ({ incident, onClose 
 
           {/* Proposed fix */}
           {incident.proposed_fix && (
-            <div style={{ marginBottom: '1.25rem' }}>
-              <div className="flex-row gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+            <div style={{ marginBottom: '1.25rem', maxWidth: '100%', boxSizing: 'border-box' }}>
+              <div className="flex-row flex-wrap gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
                 <Terminal size={14} /> PROPOSED REMEDIATION
               </div>
               <div className="code-block">{incident.proposed_fix}</div>
@@ -120,8 +120,8 @@ export const IncidentModal: React.FC<IncidentModalProps> = ({ incident, onClose 
 
           {/* Execution Log */}
           {incident.execution_log && (
-            <div style={{ marginBottom: '1.25rem' }}>
-              <div className="flex-row gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+            <div style={{ marginBottom: '1.25rem', maxWidth: '100%', boxSizing: 'border-box' }}>
+              <div className="flex-row flex-wrap gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
                 <Terminal size={14} /> REMEDIATION EXECUTION LOG
               </div>
               <div className="code-block" style={{ color: '#6ee7b7' }}>{incident.execution_log}</div>
@@ -129,13 +129,13 @@ export const IncidentModal: React.FC<IncidentModalProps> = ({ incident, onClose 
           )}
 
           {/* AI Thinking & Action Transcript */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <div className="flex-row gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+          <div style={{ marginBottom: '1.25rem', maxWidth: '100%', boxSizing: 'border-box' }}>
+            <div className="flex-row flex-wrap gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
               <Cpu size={14} /> AI THINKING & ACTION TRANSCRIPT
             </div>
             
             {loadingTranscript ? (
-              <div className="text-muted font-mono" style={{ fontSize: '0.8rem', padding: '0.5rem' }}>
+              <div className="text-muted font-mono" style={{ fontSize: '0.8rem', padding: '0.5rem', maxWidth: '100%', boxSizing: 'border-box', overflowWrap: 'anywhere' }}>
                 Loading transcript events...
               </div>
             ) : transcript.length === 0 ? (
@@ -223,8 +223,8 @@ export const IncidentModal: React.FC<IncidentModalProps> = ({ incident, onClose 
 
           {/* Error Logs */}
           {incident.error_logs && (
-            <div>
-              <div className="flex-row gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+            <div style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
+              <div className="flex-row flex-wrap gap-sm" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
                 <FileText size={14} /> DOCKER CRASH LOGS
               </div>
               <div className="code-block" style={{ color: '#fca5a5' }}>{incident.error_logs}</div>

@@ -489,7 +489,7 @@ export const StackWatchersView: React.FC<StackWatchersViewProps> = ({
                   {stack.last_audit && getAuditBadge(stack.last_audit.status)}
                 </div>
 
-                <div className="flex-row gap-sm" style={{ alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                <div className="flex-row flex-wrap gap-xs" style={{ alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                   {/* Action Buttons */}
                   <button
                     onClick={e => handleAuditStack(stack.name, e)}

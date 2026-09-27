@@ -32,7 +32,7 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({
     <div className="card" style={{ marginBottom: '1rem', borderLeft: '4px solid var(--accent-emerald)' }}>
       {/* Header */}
       <div className="card-header" style={{ marginBottom: '0.75rem' }}>
-        <div className="flex-row gap-sm">
+        <div className="flex-row flex-wrap gap-sm">
           <span style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
             {incident.target_id}
           </span>

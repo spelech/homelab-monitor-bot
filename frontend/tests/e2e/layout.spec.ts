@@ -180,6 +180,22 @@ test.describe('Responsive Layout & Overflow Audits', () => {
         ]),
       });
     });
+
+    await page.route('**/api/incidents/*/transcript', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          events: [
+            {
+              timestamp: new Date().toISOString(),
+              type: 'PROMPT_GENERATED',
+              data: { prompt: 'Investigate radarr4k log syntax errors' },
+            },
+          ],
+        }),
+      });
+    });
   });
 
   test('main dashboard has zero layout overflow and fits viewport', async ({ page }) => {
@@ -199,6 +215,31 @@ test.describe('Responsive Layout & Overflow Audits', () => {
 
     // Click Stack SRE tab
     await page.click('button:has-text("Stack SRE")');
+    await page.waitForTimeout(300);
+
+    await expect(page).toHaveNoLayoutOverflow();
+  });
+
+  test('incident modal dialog fits within mobile viewport with zero bleed', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.app-container')).toBeVisible();
+
+    // Click View Error Logs button to open modal
+    await page.click('button:has-text("View Error Logs")');
+    await expect(page.locator('.modal-backdrop')).toBeVisible();
+
+    await expect(page).toHaveNoLayoutOverflow();
+
+    // Close modal
+    await page.click('button:has-text("Close")');
+    await expect(page.locator('.modal-backdrop')).not.toBeVisible();
+  });
+
+  test('upgrade and canary hub tab renders cleanly without overflow', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.app-container')).toBeVisible();
+
+    await page.click('button:has-text("Upgrade & Canary Hub")');
     await page.waitForTimeout(300);
 
     await expect(page).toHaveNoLayoutOverflow();

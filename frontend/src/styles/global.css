@@ -6,6 +6,12 @@
   padding: 0;
 }
 
+html, body {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-app);
@@ -21,10 +27,25 @@ body {
   transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
+#root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
 .app-container {
+  width: 100%;
   max-width: 1360px;
   margin: 0 auto;
   padding: 1.5rem 1.25rem 4rem;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .app-container {
+    padding: 1rem 0.75rem 3rem;
+  }
 }
 
 /* Scrollbars */
@@ -80,6 +101,19 @@ h1, h2, h3, h4, h5, h6 {
   flex-direction: column;
 }
 
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.min-w-0 {
+  min-width: 0;
+}
+
+.gap-xs { gap: 0.25rem; }
 .gap-sm { gap: 0.5rem; }
 .gap-md { gap: 1rem; }
 .gap-lg { gap: 1.5rem; }
@@ -108,12 +142,14 @@ h1, h2, h3, h4, h5, h6 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .grid-cols-3 {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .grid-cols-2, .grid-cols-4 {
+  .grid-cols-4,
+  .grid-cols-3,
+  .grid-cols-2 {
     grid-template-columns: 1fr;
   }
 }

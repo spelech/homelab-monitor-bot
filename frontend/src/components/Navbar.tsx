@@ -17,14 +17,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   return (
     <header className="card" style={{ marginBottom: '1.25rem', padding: '0.85rem 1.25rem' }}>
-      <div className="flex-row" style={{ justifyContent: 'space-between' }}>
+      <div className="flex-row flex-wrap gap-md" style={{ justifyContent: 'space-between', width: '100%' }}>
         {/* Brand & Logo */}
-        <div className="flex-row gap-md">
-          <div className="stat-icon" style={{ background: 'var(--accent-emerald-subtle)', color: 'var(--accent-emerald)', width: 38, height: 38 }}>
+        <div className="flex-row flex-wrap gap-md">
+          <div className="stat-icon" style={{ background: 'var(--accent-emerald-subtle)', color: 'var(--accent-emerald)', width: 38, height: 38, minWidth: 38 }}>
             <Activity size={22} />
           </div>
           <div>
-            <div className="flex-row gap-sm">
+            <div className="flex-row flex-wrap gap-sm">
               <span style={{ fontWeight: 800, fontSize: '1.2rem', letterSpacing: '-0.02em' }}>
                 AutoHeal <span className="text-emerald">SRE</span>
               </span>
@@ -37,7 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* System Status & Theme Controls */}
-        <div className="flex-row gap-md">
+        <div className="flex-row flex-wrap gap-sm">
           {maintenanceActive ? (
             <div className="badge badge-warning" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>
               <span className="pulsing-dot" style={{ background: 'var(--status-warning)' }}></span>
