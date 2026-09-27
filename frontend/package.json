@@ -14,9 +14,11 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "playwright-layout-inspector": "npm:@spelech/playwright-layout-inspector@^1.0.0",
     "typescript": "^5.4.5",
     "vite": "^5.3.4"
   }
