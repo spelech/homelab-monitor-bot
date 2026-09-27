@@ -80,7 +80,6 @@ def test_audit_all_stacks_sends_single_digest_notification():
 
     with patch.object(manager, "discover_stacks", return_value=mock_stacks), \
          patch.object(manager, "audit_stack_logs") as mock_audit, \
-         patch("app.stack_watcher.publish_sre_audit_preview", return_value="https://preview.wileyriley.com/sre-audit-daily/") as mock_preview, \
          patch("app.notifier.send_incident_notification") as mock_single_notify, \
          patch("app.notifier.send_sre_digest_notification") as mock_digest_notify:
 
@@ -94,10 +93,8 @@ def test_audit_all_stacks_sends_single_digest_notification():
 
         # Individual stack alerts must NOT fire from audit_all_stacks
         mock_single_notify.assert_not_called()
-        # Preview publishing must be called
-        mock_preview.assert_called_once_with(results)
-        # Single consolidated digest must be fired with preview_url
-        mock_digest_notify.assert_called_once_with(results, preview_url="https://preview.wileyriley.com/sre-audit-daily/")
+        # Single consolidated digest must be fired directly pointing to dashboard
+        mock_digest_notify.assert_called_once_with(results)
         assert len(results) == 3
 
 

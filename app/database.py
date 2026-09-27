@@ -11,10 +11,13 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./monitorbot.db")
 
-engine_kwargs = {"connect_args": {"check_same_thread": False}}
+engine_kwargs = {"connect_args": {"check_same_thread": False, "timeout": 30}}
 if ":memory:" in DATABASE_URL or "mode=memory" in DATABASE_URL:
     from sqlalchemy.pool import StaticPool
     engine_kwargs["poolclass"] = StaticPool
+elif "sqlite" in DATABASE_URL:
+    from sqlalchemy.pool import NullPool
+    engine_kwargs["poolclass"] = NullPool
 
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

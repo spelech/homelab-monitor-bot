@@ -944,15 +944,9 @@ class StackWatcherManager:
                 })
 
         if send_digest:
-            preview_url = None
-            try:
-                preview_url = publish_sre_audit_preview(results)
-            except Exception as prev_err:
-                logger.debug(f"Failed to publish SRE audit report to agent-preview: {prev_err}")
-
             try:
                 from app.notifier import send_sre_digest_notification
-                send_sre_digest_notification(results, preview_url=preview_url)
+                send_sre_digest_notification(results)
             except Exception as notif_err:
                 logger.error(f"Failed to send SRE digest notification: {notif_err}")
 

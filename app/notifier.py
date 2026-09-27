@@ -507,11 +507,22 @@ def is_benign_warning(summary: str) -> bool:
         "cosmetic",
         "expected transient",
         "false positive",
+        "all logged events are expected",
+        "routine operational noise",
+        "fully healthy",
+        "healthy with no actionable",
+        "harmless",
+        "no operational impact",
+        "deprecation warning",
+        "deprecation warnings",
+        "sleeping zigbee",
+        "routine iot",
+        "already handled by its retry",
     ]
     return any(kw in summary_lower for kw in benign_keywords)
 
 
-def extract_concise_summary(text: str, max_chars: int = 100) -> str:
+def extract_concise_summary(text: str, max_chars: int = 70) -> str:
     """
     Extracts a concise, single-sentence summary suitable for push notification banners.
     Strips verbose introductory fluff.
@@ -598,19 +609,21 @@ def send_sre_digest_notification(results: list, preview_url: Optional[str] = Non
 
     if active_outages:
         message_body += f"\n\n🚨 Active Outages ({len(active_outages)}):"
-        for outage in active_outages:
+        for outage in active_outages[:3]:
             st_name = outage.get("stack_name", "unknown")
             root = extract_concise_summary(outage.get("root_cause") or outage.get("summary") or "Action required")
             message_body += f"\n• {st_name}: {root}"
+        if len(active_outages) > 3:
+            message_body += f"\n... and {len(active_outages) - 3} more."
 
     if attention_needed:
         message_body += f"\n\n⚠️ Needs Attention ({len(attention_needed)}):"
-        for att in attention_needed[:8]:
+        for att in attention_needed[:3]:
             st_name = att.get("stack_name", "unknown")
             sum_txt = extract_concise_summary(att.get("summary") or att.get("root_cause") or "Attention required")
             message_body += f"\n• {st_name}: {sum_txt}"
-        if len(attention_needed) > 8:
-            message_body += f"\n... and {len(attention_needed) - 8} more."
+        if len(attention_needed) > 3:
+            message_body += f"\n... and {len(attention_needed) - 3} more on dashboard."
 
     benign_filtered = warnings_count - len(attention_needed)
     if benign_filtered > 0:
@@ -618,18 +631,21 @@ def send_sre_digest_notification(results: list, preview_url: Optional[str] = Non
     else:
         message_body += f"\n\n✅ {clean_count} stacks clean & healthy"
 
-    report_url = preview_url or os.getenv("SRE_REPORT_URL", "https://preview.wileyriley.com/sre-audit-daily/")
     dashboard_url = os.getenv("WEBHOOK_BASE_URL", "https://monitorbot.wileyriley.com").rstrip("/")
-    message_body += f"\n\n📄 Full Report: {report_url}"
+    report_url = preview_url or os.getenv("SRE_REPORT_URL", dashboard_url)
+    if report_url != dashboard_url:
+        message_body += f"\n\n📄 Full Report: {report_url}"
+    else:
+        message_body += f"\n\n📄 Dashboard: {dashboard_url}"
 
     # Enforce strict length cap to prevent NTFY mobile push truncation
-    if len(message_body) > 1200:
-        message_body = message_body[:1150].rsplit("\n", 1)[0] + f"\n... [Report truncated: see {report_url}]"
+    if len(message_body) > 600:
+        message_body = message_body[:550].rsplit("\n", 1)[0] + f"\n... [See dashboard: {dashboard_url}]"
 
     # Always try to send to Telegram as well if configured
     send_telegram_notification(title, message_body, None)
 
-    # NTFY Action buttons
+    # NTFY Action buttons (link to production dashboard and full stacks view)
     actions_str = f"view, Full Report, {report_url}; view, Dashboard, {dashboard_url}"
 
     headers = {
@@ -664,7 +680,7 @@ def send_sre_digest_notification(results: list, preview_url: Optional[str] = Non
     logger.info(f"Attempting direct local LAN ntfy fallback for SRE digest to {fallback_url}...")
 
     local_dashboard = os.getenv("LOCAL_WEBHOOK_BASE_URL", "http://10.0.0.10:9013").rstrip("/")
-    local_report = "http://preview.lan/sre-audit-daily/"
+    local_report = local_dashboard
     fallback_headers = dict(headers)
     fallback_headers["Actions"] = f"view, Full Report, {local_report}; view, Dashboard, {local_dashboard}"
 
